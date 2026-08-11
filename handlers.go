@@ -23,6 +23,30 @@ func timeText(unix int64) string {
 	return time.Unix(unix, 0).UTC().Format("2006-01-02 15:04")
 }
 
+// clockText makes the short form for a chat line. A full date on each line
+// is too long for the fixed time column.
+func clockText(unix int64) string {
+	return time.Unix(unix, 0).UTC().Format("15:04")
+}
+
+// isHTMX reports whether the request came from the HTMX library. The
+// handlers then return a fragment or an empty body instead of a redirect,
+// so that the page works with the library and also without it.
+func isHTMX(req *http.Request) bool {
+	return req.Header.Get("HX-Request") == "true"
+}
+
+// chatItem makes the template context of one chat line.
+func chatItem(line Reply, canDelete bool) map[string]any {
+	return map[string]any{
+		"id":         line.ID,
+		"handle":     line.Handle,
+		"body":       line.Body,
+		"when":       clockText(line.CreatedAt),
+		"can_delete": canDelete,
+	}
+}
+
 // ---------- public pages ----------
 
 // ShowLogin is the entry page. A member with a session goes to the feed.
@@ -410,6 +434,11 @@ func (app *App) DeleteReplyHandler(res http.ResponseWriter, req *http.Request, u
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
+	// An empty body with the outerHTML swap removes the line element.
+	if isHTMX(req) {
+		res.WriteHeader(http.StatusOK)
+		return
+	}
 	http.Redirect(res, req, target, http.StatusSeeOther)
 }
 
@@ -450,14 +479,10 @@ func (app *App) ShowChannel(res http.ResponseWriter, req *http.Request, usr *Use
 
 	owner := pst.UserID == usr.ID
 	items := make([]map[string]any, 0, len(lines))
+	var last int64
 	for _, line := range lines {
-		items = append(items, map[string]any{
-			"id":         line.ID,
-			"handle":     line.Handle,
-			"body":       line.Body,
-			"when":       timeText(line.CreatedAt),
-			"can_delete": owner || line.UserID == usr.ID,
-		})
+		items = append(items, chatItem(line, owner || line.UserID == usr.ID))
+		last = line.ID
 	}
 
 	ctx := app.Base(req, usr)
@@ -468,14 +493,60 @@ func (app *App) ShowChannel(res http.ResponseWriter, req *http.Request, usr *Use
 		"handle":  pst.Handle,
 		"when":    timeText(pst.CreatedAt),
 	}
+	ctx["channel_id"] = pst.ID
 	ctx["has_topic"] = pst.Body != ""
 	ctx["lines"] = items
 	ctx["line_count"] = len(items)
 	ctx["empty"] = len(items) == 0
 	ctx["owner"] = owner
 	ctx["keep"] = conf.ChatKeep
+	ctx["last_id"] = last
 	ctx["error"] = req.URL.Query().Get("error")
 	app.Render(res, req, "chat", ctx)
+}
+
+// ChatLines returns the messages above a row identifier, plus a new poller
+// element that carries the new highest identifier. The message POST does
+// not render the new line itself, so there is one render path only and a
+// duplicate line cannot appear.
+func (app *App) ChatLines(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	conf := app.Conf()
+	pid, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+	if err != nil || pid < 1 {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+	after, err := strconv.ParseInt(req.URL.Query().Get("after"), 10, 64)
+	if err != nil || after < 0 {
+		after = 0
+	}
+
+	pst, err := app.GetPost(pid)
+	if err != nil || !pst.IsChat {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+
+	lines, err := app.ListChatLinesAfter(pid, after, conf.ChatPerPage)
+	if err != nil {
+		log.Printf("list chat lines after %d on %d: %v", after, pid, err)
+		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+
+	owner := pst.UserID == usr.ID
+	items := make([]map[string]any, 0, len(lines))
+	last := after
+	for _, line := range lines {
+		items = append(items, chatItem(line, owner || line.UserID == usr.ID))
+		last = line.ID
+	}
+
+	ctx := app.Base(req, usr)
+	ctx["channel_id"] = pid
+	ctx["lines"] = items
+	ctx["last_id"] = last
+	app.Render(res, req, "lines", ctx)
 }
 
 // CreateChannelHandler makes a channel. The subject is the channel name and
@@ -558,6 +629,14 @@ func (app *App) CreateChatLineHandler(res http.ResponseWriter, req *http.Request
 	if _, err := app.CreateChatLine(pid, usr.ID, body, app.Conf().ChatKeep); err != nil {
 		log.Printf("create chat line on %d: %v", pid, err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+	// The response body is empty. The HX-Trigger header makes the poller
+	// fire at once, so the new message arrives through the same path as a
+	// message from another member.
+	if isHTMX(req) {
+		res.Header().Set("HX-Trigger", "newmsg")
+		res.WriteHeader(http.StatusNoContent)
 		return
 	}
 	http.Redirect(res, req, target, http.StatusSeeOther)

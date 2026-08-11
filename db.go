@@ -540,6 +540,33 @@ func (app *App) ListChatLines(pid int64, limit int) ([]Reply, error) {
 	return list, rows.Err()
 }
 
+// ListChatLinesAfter returns the messages of a channel above a row
+// identifier. The poll on the chat page uses this to fetch new messages
+// only. The index idx_replies_post serves the query, so a poll that finds
+// nothing costs one index seek.
+func (app *App) ListChatLinesAfter(pid, after int64, limit int) ([]Reply, error) {
+	rows, err := app.dbh.Query(`
+		SELECT rep.id, rep.post_id, rep.user_id, usr.handle, rep.body, rep.created_at
+		FROM replies rep JOIN users usr ON usr.id = rep.user_id
+		WHERE rep.post_id = ? AND rep.id > ?
+		ORDER BY rep.id ASC LIMIT ?`, pid, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]Reply, 0, 16)
+	for rows.Next() {
+		var rep Reply
+		if err := rows.Scan(&rep.ID, &rep.PostID, &rep.UserID, &rep.Handle,
+			&rep.Body, &rep.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, rep)
+	}
+	return list, rows.Err()
+}
+
 // CreateChatLine adds one message to a channel, moves the channel to the top
 // of the list, and removes the oldest messages above the keep limit. The
 // three operations are in one transaction, so that the count cannot drift.

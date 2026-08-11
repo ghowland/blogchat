@@ -1,48 +1,37 @@
 {{> header}}
-<p class="back"><a href="/chat">Back to the channels</a></p>
+<div class="chatpage">
 
-{{#error}}<p class="error">{{error}}</p>{{/error}}
+  <div class="chathead">
+    <div class="chattitle">
+      <h1>{{post.subject}}</h1>
+      {{#has_topic}}<p class="topic">{{post.body}}</p>{{/has_topic}}
+    </div>
+    <div class="chatmeta">
+      <a href="/chat">All channels</a>
+      <span>{{post.handle}} &middot; keeps {{keep}}</span>
+      {{#owner}}
+      <form class="inline" method="post" action="/c/{{post.id}}/delete">
+        <input type="hidden" name="csrf" value="{{csrf}}">
+        <input type="hidden" name="kind" value="chat">
+        <button class="link danger" type="submit">delete channel</button>
+      </form>
+      {{/owner}}
+    </div>
+  </div>
 
-<div class="card">
-  <h1>{{post.subject}}</h1>
-  {{#has_topic}}<p class="lead">{{post.body}}</p>{{/has_topic}}
-  <p class="meta">Started by {{post.handle}} &middot; {{post.when}}</p>
-  {{#owner}}
-  <form class="inline" method="post" action="/c/{{post.id}}/delete">
-    <input type="hidden" name="csrf" value="{{csrf}}">
-    <input type="hidden" name="kind" value="chat">
-    <button class="danger" type="submit">Delete this channel</button>
-  </form>
-  {{/owner}}
+  {{#error}}<p class="error">{{error}}</p>{{/error}}
+
+  <div class="lines" id="lines">
+    {{#empty}}<p class="notice">There are no messages. Send the first one.</p>{{/empty}}
+    {{#lines}}{{> line}}{{/lines}}
+    <div id="poller"
+         hx-get="/c/{{channel_id}}/lines?after={{last_id}}"
+         hx-trigger="every 3s, newmsg from:body"
+         hx-swap="outerHTML"></div>
+  </div>
+
+  {{> messageform}}
 </div>
-
-{{> messageform}}
-
-<p class="small">
-  This channel keeps the newest {{keep}} messages. Older messages are removed
-  and cannot be recovered.
-</p>
-
-{{#empty}}
-<p class="notice">There are no messages. Send the first one.</p>
-{{/empty}}
-
-{{#lines}}
-<article class="line">
-  <p class="meta">
-    {{handle}} &middot; {{when}}
-    {{#can_delete}}
-    <form class="inline" method="post" action="/r/{{id}}/delete">
-      <input type="hidden" name="csrf" value="{{csrf}}">
-      <input type="hidden" name="post" value="{{post.id}}">
-      <input type="hidden" name="kind" value="chat">
-      <button class="link danger" type="submit">delete</button>
-    </form>
-    {{/can_delete}}
-  </p>
-  <div class="body">{{body}}</div>
-</article>
-{{/lines}}
-
-{{> footer}}
-
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

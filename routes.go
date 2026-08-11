@@ -37,6 +37,7 @@ func (app *App) Routes() http.Handler {
 	mux.HandleFunc("POST /chat", app.RequireAuth(app.CreateChannelHandler))
 	mux.HandleFunc("GET /c/{id}", app.RequireAuth(app.ShowChannel))
 	mux.HandleFunc("POST /c/{id}/m", app.RequireAuth(app.CreateChatLineHandler))
+	mux.HandleFunc("GET /c/{id}/lines", app.RequireAuth(app.ChatLines))
 	mux.HandleFunc("POST /c/{id}/delete", app.RequireAuth(app.DeletePostHandler))
 	mux.HandleFunc("GET /keys", app.RequireAuth(app.ShowKeys))
 	mux.HandleFunc("POST /keys/revoke-others", app.RequireAuth(app.RevokeOtherKeys))

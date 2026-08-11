@@ -70,14 +70,116 @@ h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
 }
 .reply { background: var(--bg); }
 
-/* A chat page shows many lines, so the vertical space is much smaller than
-   the space of a card. */
-.line {
-  padding: 0.4rem 0;
-  border-bottom: 1px solid var(--line);
+/* ---------- chat page ---------- */
+
+/* The page is a full-height column: a header that stays, a message pane
+   that scrolls, and an input box at the bottom. The dvh unit is correct on
+   a mobile browser with a retracting address bar; the vh unit is not. */
+.chatpage {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 4rem);
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1rem;
 }
-.line .meta { margin: 0; }
-.line .body { margin: 0.15rem 0 0; }
+
+.chathead {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.chathead h1 { margin: 0.5rem 0 0.15rem; font-size: 1.2rem; }
+.topic { margin: 0; color: var(--dim); font-size: 0.9rem; }
+.chatmeta {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  color: var(--dim);
+  margin-top: 0.3rem;
+}
+
+/* The message pane takes the free space and scrolls by itself. */
+.lines {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0;
+}
+
+/* One message on one line. The negative text indent with the equal left
+   padding gives a hanging indent, so a wrapped line aligns under the text
+   and not under the time. */
+.line {
+  padding: 0.1rem 0 0.1rem 8.5rem;
+  text-indent: -8.5rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.line:hover { background: #f6f6f6; }
+
+.when {
+  display: inline-block;
+  width: 3rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+.who {
+  display: inline-block;
+  width: 5.5rem;
+  padding-right: 0.5rem;
+  text-align: right;
+  color: #06c;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-indent: 0;
+}
+
+/* The delete control appears on hover only. A visible control on every
+   line makes the page unreadable. */
+.del {
+  visibility: hidden;
+  border: 0;
+  background: none;
+  color: var(--warn);
+  cursor: pointer;
+  padding: 0 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.line:hover .del { visibility: visible; }
+
+/* The input box sits at the bottom and grows with the text. */
+.msgform {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0 0.9rem;
+}
+.msgform textarea {
+  flex: 1;
+  min-height: 2.4rem;
+  max-height: 9rem;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+.msgform button { align-self: flex-end; }
+
+@media (max-width: 30rem) {
+  .line { padding-left: 0; text-indent: 0; }
+  .who { width: auto; text-align: left; }
+}
 .row { border-bottom: 1px solid var(--line); padding: 0.75rem 0; }
 .row h2 a { text-decoration: none; }
 

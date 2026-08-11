@@ -1,0 +1,4 @@
+{{#lines}}{{> line}}{{/lines}}<div id="poller"
+     hx-get="/c/{{channel_id}}/lines?after={{last_id}}"
+     hx-trigger="every 3s, newmsg from:body"
+     hx-swap="outerHTML"></div>

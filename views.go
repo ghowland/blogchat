@@ -93,8 +93,16 @@ func (app *App) Render(res http.ResponseWriter, req *http.Request, name string, 
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.Header().Set("X-Content-Type-Options", "nosniff")
 	res.Header().Set("Referrer-Policy", "same-origin")
+	// script-src permits the HTMX file from the content network. connect-src
+	// permits the requests that HTMX makes, because those requests use
+	// XMLHttpRequest and form-action does not govern them.
 	res.Header().Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'")
+		"default-src 'none'; "+
+			"script-src 'self' https://cdn.jsdelivr.net; "+
+			"connect-src 'self'; "+
+			"style-src 'self'; "+
+			"form-action 'self'; "+
+			"base-uri 'none'")
 	res.WriteHeader(http.StatusOK)
 	res.Write(buf.Bytes())
 }
@@ -127,4 +135,3 @@ func plainError(res http.ResponseWriter, code int, msg string) {
 	res.WriteHeader(code)
 	fmt.Fprintln(res, msg)
 }
-

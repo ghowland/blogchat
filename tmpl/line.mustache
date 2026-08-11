@@ -1,0 +1,1 @@
+<article class="line" id="line{{id}}"><span class="when">{{when}}</span><span class="who">{{handle}}:</span><span class="text">{{body}}</span>{{#can_delete}}<button class="del" type="button" hx-post="/r/{{id}}/delete" hx-vals='{"csrf":"{{csrf}}","kind":"chat"}' hx-target="#line{{id}}" hx-swap="outerHTML" title="delete">&times;</button>{{/can_delete}}</article>

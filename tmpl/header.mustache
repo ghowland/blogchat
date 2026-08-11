@@ -6,6 +6,12 @@
 <meta name="robots" content="noindex, nofollow">
 <title>{{site_name}}</title>
 <link rel="stylesheet" href="/static/style.css">
+<!-- The configuration stops the injection of an inline style element,
+     which the Content Security Policy blocks. -->
+<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js"
+        integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V"
+        crossorigin="anonymous"></script>
 </head>
 <body>
 <header class="bar">
