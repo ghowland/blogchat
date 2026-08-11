@@ -106,47 +106,67 @@ h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0.25rem 0;
+
+  /* The pane is a flex column so that the inner wrapper can use an
+     automatic top margin. Do not use justify-content: flex-end here: with
+     content taller than the pane, several browsers place the top of the
+     content above the scroll origin, where the reader cannot reach it. */
+  display: flex;
+  flex-direction: column;
 }
 
-/* One message on one line. The negative text indent with the equal left
-   padding gives a hanging indent, so a wrapped line aligns under the text
-   and not under the time. */
+/* An automatic top margin absorbs the free space of the flex container.
+   With a short list, the margin grows and holds the messages against the
+   bottom edge, next to the input box. With a long list, the free space is
+   zero, the margin is zero, and the pane scrolls in the normal way. */
+.linewrap {
+  margin-top: auto;
+}
+
+/* One message on one line, as a grid of four columns: time, handle, text,
+   and the delete control. The grid holds the columns together as one
+   declaration. The earlier method used a left padding with an equal
+   negative text indent, and those are two independent properties that any
+   later rule can separate; when that happened, the time column moved out
+   of the visible area. A wrapped line now aligns under the text column
+   with no second property to keep in agreement. */
 .line {
-  padding: 0.1rem 0 0.1rem 8.5rem;
-  text-indent: -8.5rem;
+  display: grid;
+  grid-template-columns: 3.2rem 6rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  padding: 0.1rem 0;
   font-size: 0.92rem;
   line-height: 1.45;
 }
 .line:hover { background: #f6f6f6; }
 
-.when {
-  display: inline-block;
-  width: 3rem;
+/* Every rule below is scoped under .line. The header partial also uses the
+   class name who for the handle in the navigation bar, and an unscoped
+   rule changes that element as well. */
+.line .when {
   color: var(--dim);
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;
 }
-.who {
-  display: inline-block;
-  width: 5.5rem;
-  padding-right: 0.5rem;
+.line .who {
   text-align: right;
   color: #06c;
   font-weight: 600;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  vertical-align: bottom;
 }
-.text {
+.line .text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  text-indent: 0;
 }
 
 /* The delete control appears on hover only. A visible control on every
    line makes the page unreadable. */
-.del {
+/* The control keeps its grid cell at all times, so a line does not change
+   width when the pointer enters it. */
+.line .del {
   visibility: hidden;
   border: 0;
   background: none;
@@ -158,6 +178,8 @@ h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
 }
 .line:hover .del { visibility: visible; }
 
+/* A line without a delete control needs no placeholder, because the auto
+   column collapses to zero width. */
 /* The input box sits at the bottom and grows with the text. */
 .msgform {
   display: flex;
@@ -177,9 +199,16 @@ h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
 .msgform button { align-self: flex-end; }
 
 @media (max-width: 30rem) {
-  .line { padding-left: 0; text-indent: 0; }
-  .who { width: auto; text-align: left; }
+  /* On a narrow screen the two fixed columns take too much of the width,
+     so the time and the handle share the first row and the text takes the
+     full width below them. */
+  .line {
+    grid-template-columns: 3.2rem minmax(0, 1fr) auto;
+  }
+  .line .who { text-align: left; }
+  .line .text { grid-column: 1 / -1; padding-left: 3.7rem; }
 }
+
 .row { border-bottom: 1px solid var(--line); padding: 0.75rem 0; }
 .row h2 a { text-decoration: none; }
 

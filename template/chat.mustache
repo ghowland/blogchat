@@ -22,12 +22,14 @@
   {{#error}}<p class="error">{{error}}</p>{{/error}}
 
   <div class="lines" id="lines">
-    {{#empty}}<p class="notice">There are no messages. Send the first one.</p>{{/empty}}
-    {{#lines}}{{> line}}{{/lines}}
-    <div id="poller"
-         hx-get="/c/{{channel_id}}/lines?after={{last_id}}"
-         hx-trigger="every 3s, newmsg from:body"
-         hx-swap="outerHTML"></div>
+    <div class="linewrap" id="linewrap">
+      {{#empty}}<p class="notice">There are no messages. Send the first one.</p>{{/empty}}
+      {{#lines}}{{> line}}{{/lines}}
+      <div id="poller"
+           hx-get="/c/{{channel_id}}/lines?after={{last_id}}"
+           hx-trigger="every 3s, newmsg from:body"
+           hx-swap="outerHTML"></div>
+    </div>
   </div>
 
   {{> messageform}}

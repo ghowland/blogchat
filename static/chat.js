@@ -43,7 +43,13 @@
 		if (atEnd) { pane.scrollTop = pane.scrollHeight; }
 	});
 
-	pane.scrollTop = pane.scrollHeight;
+    // The first scroll runs after the browser completes the layout of the
+	// pane. Before the layout, scrollHeight can be wrong. With a short
+	// list the pane has no scroll range and this call does nothing, which
+	// is correct, because the automatic margin holds the messages at the
+	// bottom edge.
+	requestAnimationFrame(function () {
+		pane.scrollTop = pane.scrollHeight;
+	});
 	box.focus();
 })();
-

@@ -12,18 +12,18 @@ import (
 	"github.com/cbroglie/mustache"
 )
 
-//go:embed tmpl/*.mustache
-var tmplFS embed.FS
+//go:embed template/*.mustache
+var templateFS embed.FS
 
 // Views holds every template, parsed once at startup.
 type Views struct {
 	items map[string]*mustache.Template
 }
 
-// LoadViews parses each file in tmpl. Each file is also a partial, so a
+// LoadViews parses each file in template. Each file is also a partial, so a
 // page can include another page fragment with the {{> name}} form.
 func LoadViews() (*Views, error) {
-	entries, err := fs.ReadDir(tmplFS, "tmpl")
+	entries, err := fs.ReadDir(templateFS, "template")
 	if err != nil {
 		return nil, fmt.Errorf("read template directory: %w", err)
 	}
@@ -33,7 +33,7 @@ func LoadViews() (*Views, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".mustache") {
 			continue
 		}
-		raw, err := tmplFS.ReadFile("tmpl/" + entry.Name())
+		raw, err := templateFS.ReadFile("template/" + entry.Name())
 		if err != nil {
 			return nil, err
 		}
