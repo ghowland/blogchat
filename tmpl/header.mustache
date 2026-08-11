@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{site_name}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/feed">{{site_name}}</a>
+  {{#authed}}
+  <nav class="nav">
+    <a href="/feed">Posts</a>
+    <a href="/invite">Invite</a>
+    <a href="/keys">Keys</a>
+    <span class="who">{{handle}}</span>
+    <form class="inline" method="post" action="/logout">
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <button class="link" type="submit">Sign out</button>
+    </form>
+  </nav>
+  {{/authed}}
+</header>
+<main>
+

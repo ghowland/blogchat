@@ -1,0 +1,16 @@
+{
+  "site_name": "Example",
+  "site_url": "https://example.com",
+  "listen": "127.0.0.1:8080",
+  "db_path": "blog.db",
+  "terms": "Members only.\n\nThis site is invite only. Do not share your sign-in link, because the link makes a session on any device.\n\nYour email address stays private. Other members see your handle and the handle of the member that invited you.",
+  "footer": "Contact: admin@example.com",
+  "blocked_countries": ["GB", "AU"],
+  "trusted_proxies": [],
+  "geo_v4_file": "",
+  "smtp_host": "localhost:25",
+  "mail_from": "no-reply@example.com",
+  "invite_quota": 5,
+  "session_days": 30,
+  "posts_per_page": 50
+}

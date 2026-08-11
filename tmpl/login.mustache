@@ -1,0 +1,31 @@
+{{> header}}
+<h1>{{site_name}}</h1>
+
+{{#sent}}
+<p class="notice">
+  If that address belongs to a member, a sign-in link is now on the way.
+  The link is valid for 15 minutes and works one time only.
+</p>
+{{/sent}}
+
+{{^sent}}
+<p class="lead">
+  This site is for members only. There is no registration page and there are
+  no passwords. Give your email address and you get a sign-in link.
+</p>
+
+{{#error}}<p class="error">{{error}}</p>{{/error}}
+
+<form class="card form" method="post" action="/login">
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" maxlength="254" required
+         autocomplete="email" autofocus>
+  <button type="submit">Send the link</button>
+</form>
+
+<p class="small">
+  A member of the site must invite you before you can sign in.
+</p>
+{{/sent}}
+{{> footer}}
+

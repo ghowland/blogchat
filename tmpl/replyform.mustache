@@ -1,0 +1,6 @@
+<form class="card form" method="post" action="/p/{{post.id}}/r">
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <label for="reply">Reply</label>
+  <textarea id="reply" name="body" rows="5" maxlength="4096" required></textarea>
+  <button type="submit">Send reply</button>
+</form>

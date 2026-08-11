@@ -1,0 +1,40 @@
+{{> header}}
+<h1>Invite a person</h1>
+
+{{#sent}}
+<p class="notice">
+  The invitation is on the way. The link is valid for 7 days.
+</p>
+{{/sent}}
+
+<p class="lead">
+  You give the address and the handle. The handle is the public name and you
+  cannot change it later. The address stays private and no page shows it.
+  Your handle appears on the profile of the new member as the inviter.
+</p>
+
+{{#error}}<p class="error">{{error}}</p>{{/error}}
+
+{{#can_invite}}
+<form class="card form" method="post" action="/invite">
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" maxlength="254" required
+         autocomplete="off">
+  <label for="handle">Handle</label>
+  <input id="handle" name="handle" type="text" maxlength="24" minlength="2"
+         pattern="[A-Za-z0-9_.-]{2,24}" required autocomplete="off">
+  <p class="small">Letters, digits, and the signs _ - . only.</p>
+  <button type="submit">Send the invitation</button>
+</form>
+<p class="small">You have {{remaining}} invitations available.</p>
+{{/can_invite}}
+
+{{^can_invite}}
+<p class="notice">
+  You have no invitations available. An invitation becomes free again when
+  the person completes the first sign-in.
+</p>
+{{/can_invite}}
+{{> footer}}
+

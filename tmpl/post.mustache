@@ -1,0 +1,36 @@
+{{> header}}
+{{> nav}}
+
+{{#error}}<p class="error">{{error}}</p>{{/error}}
+
+<article class="card">
+  <h1>{{post.subject}}</h1>
+  <p class="meta">{{post.handle}} &middot; {{post.when}}</p>
+  <div class="body">{{post.body}}</div>
+  {{#owner}}
+  <form class="inline" method="post" action="/p/{{post.id}}/delete">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <button class="danger" type="submit">Delete this post</button>
+  </form>
+  {{/owner}}
+</article>
+
+<h2 class="count">{{reply_count}} replies</h2>
+
+{{#replies}}
+<article class="card reply">
+  <p class="meta">{{handle}} &middot; {{when}}</p>
+  <div class="body">{{body}}</div>
+  {{#can_delete}}
+  <form class="inline" method="post" action="/r/{{id}}/delete">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="post" value="{{post.id}}">
+    <button class="danger" type="submit">Delete</button>
+  </form>
+  {{/can_delete}}
+</article>
+{{/replies}}
+
+{{> replyform}}
+{{> footer}}
+

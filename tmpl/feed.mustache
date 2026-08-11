@@ -1,0 +1,24 @@
+{{> header}}
+<h1>Posts</h1>
+
+{{#error}}<p class="error">{{error}}</p>{{/error}}
+
+{{> postform}}
+
+{{#empty}}
+<p class="notice">There are no posts. Write the first one.</p>
+{{/empty}}
+
+{{#posts}}
+<article class="row">
+  <h2><a href="/p/{{id}}">{{subject}}</a></h2>
+  <p class="meta">{{handle}} &middot; {{when}} &middot; {{replies}} replies</p>
+</article>
+{{/posts}}
+
+<nav class="pages">
+  {{#has_prev}}<a href="/feed?page={{prev_page}}">Newer</a>{{/has_prev}}
+  <span>Page {{page}}</span>
+  {{#has_next}}<a href="/feed?page={{next_page}}">Older</a>{{/has_next}}
+</nav>
+{{> footer}}
