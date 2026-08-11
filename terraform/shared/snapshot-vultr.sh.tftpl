@@ -1,0 +1,28 @@
+#!/bin/sh
+# Daily block storage snapshot on Vultr.
+#
+# VERIFY THIS ENDPOINT BEFORE YOU RELY ON IT. Vultr snapshots have
+# historically covered instances rather than block storage volumes. If the
+# create call returns 404, block storage snapshots are not available on your
+# account and this file is the wrong mechanism; see the README for the
+# alternative.
+set -eu
+
+TOKEN="${vultr_token}"
+BLOCK="${block_id}"
+API="https://api.vultr.com/v2"
+CUTOFF="$(date -u -d '28 days ago' +%Y-%m-%d)"
+
+curl -sf -X POST "$API/blocks/$BLOCK/snapshots" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"description\":\"blog-$(date -u +%Y%m%d-%H%M)\"}" > /dev/null
+
+curl -sf "$API/snapshots?per_page=200" -H "Authorization: Bearer $TOKEN" \
+| jq -r --arg cutoff "$CUTOFF" \
+    '.snapshots[] | select(.description | startswith("blog-"))
+     | select(.date_created[0:10] < $cutoff) | .id' \
+| while read -r ID; do
+    curl -sf -X DELETE "$API/snapshots/$ID" -H "Authorization: Bearer $TOKEN"
+  done
+

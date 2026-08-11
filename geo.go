@@ -219,6 +219,12 @@ func peerAddr(req *http.Request) netip.Addr {
 // security control.
 func (app *App) GeoBlock(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		// The platform health check must never be blocked, because a
+		// failed check stops the container.
+		if req.URL.Path == "/healthz" {
+			next.ServeHTTP(res, req)
+			return
+		}
 		geo := app.GeoTable()
 		if len(geo.blocked) == 0 {
 			next.ServeHTTP(res, req)
@@ -234,4 +240,3 @@ func (app *App) GeoBlock(next http.Handler) http.Handler {
 		next.ServeHTTP(res, req)
 	})
 }
-

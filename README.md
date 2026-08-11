@@ -1,4 +1,4 @@
-# Blog
+# Blogchat
 
 One Go process and one SQLite file. Text only. Invite only. No passwords, email auth only.
 
@@ -8,6 +8,10 @@ Two areas share the same backend:
 - **Chat.** A channel with a name and an optional topic. The list sorts on the time of the newest message. Each channel keeps the newest messages only and removes the rest.
 
 A channel is a post row with the `is_chat` column set to 1, and a chat message is a reply to that row. There is no separate table.
+
+## AI Usage Disclosure
+
+This README was written by Opus 5.0, and all of the code was as well.  And the Terraform configs.  Hand editing will take place as usage testing finds issues, so it remains stable after the initial features are stable.
 
 ## Build
 

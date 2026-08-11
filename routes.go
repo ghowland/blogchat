@@ -18,6 +18,17 @@ var staticFS embed.FS
 func (app *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 
+	// The platform calls this to decide whether the container is ready.
+	mux.HandleFunc("GET /healthz", func(res http.ResponseWriter, req *http.Request) {
+		res.Header().Set("Content-Type", "text/plain")
+		if err := app.dbh.Ping(); err != nil {
+			res.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		res.WriteHeader(http.StatusOK)
+		res.Write([]byte("ok"))
+	})
+
 	// Public routes.
 	mux.HandleFunc("GET /", app.ShowLogin)
 	mux.HandleFunc("POST /login", app.SubmitLogin)

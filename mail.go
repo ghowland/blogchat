@@ -40,6 +40,14 @@ func (app *App) SendMail(recipient, subject, body string) error {
 			return fmt.Errorf("starttls: %w", err)
 		}
 	}
+	// PlainAuth refuses to send the credentials over an unencrypted
+	// connection, so the STARTTLS step above must come first.
+	if conf.SMTPUser != "" {
+		auth := smtp.PlainAuth("", conf.SMTPUser, conf.SMTPPass, host)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("smtp auth: %w", err)
+		}
+	}
 	if err := client.Mail(conf.MailFrom); err != nil {
 		return fmt.Errorf("mail from: %w", err)
 	}
@@ -106,4 +114,3 @@ func (app *App) SendInviteMail(recipient, handle, inviter, raw string) error {
 		inviter, conf.SiteName, handle, conf.SiteURL, raw, conf.SiteURL)
 	return app.SendMail(recipient, "Invitation to "+conf.SiteName, body)
 }
-

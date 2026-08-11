@@ -1,0 +1,24 @@
+#!/bin/sh
+# Daily volume snapshot. DigitalOcean has no scheduled snapshot resource in
+# its Terraform provider, so this runs from cron on the instance.
+set -eu
+
+TOKEN="${do_token}"
+VOLUME="${volume_id}"
+API="https://api.digitalocean.com/v2"
+CUTOFF="$(date -u -d '28 days ago' +%Y-%m-%d)"
+
+curl -sf -X POST "$API/volumes/$VOLUME/snapshots" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"blog-$(date -u +%Y%m%d-%H%M)\"}" > /dev/null
+
+curl -sf "$API/snapshots?resource_type=volume&per_page=200" \
+  -H "Authorization: Bearer $TOKEN" \
+| jq -r --arg cutoff "$CUTOFF" \
+    '.snapshots[] | select(.name | startswith("blog-"))
+     | select(.created_at[0:10] < $cutoff) | .id' \
+| while read -r ID; do
+    curl -sf -X DELETE "$API/snapshots/$ID" -H "Authorization: Bearer $TOKEN"
+  done
+

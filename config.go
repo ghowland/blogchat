@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,8 @@ type Config struct {
 	TrustedProxies   []string `json:"trusted_proxies"`
 	GeoV4File        string   `json:"geo_v4_file"`
 	SMTPHost         string   `json:"smtp_host"`
+	SMTPUser         string   `json:"smtp_user"`
+	SMTPPass         string   `json:"smtp_pass"`
 	MailFrom         string   `json:"mail_from"`
 	InviteQuota      int      `json:"invite_quota"`
 	SessionDays      int      `json:"session_days"`
@@ -46,21 +49,81 @@ func LoadConfig(path string) (*Config, error) {
 		ChatPerPage:      100,
 	}
 
+	// A missing file is not an error. A container deployment can set every
+	// value through the environment. A file that exists but cannot be read
+	// or parsed is still an error, because that is a mistake and not a
+	// deliberate absence.
 	raw, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(conf); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+	if err == nil {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(conf); err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
 	}
+
+	conf.applyEnv()
 
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
 	return conf, nil
+}
+
+// applyEnv lets an environment variable override a file value. A container
+// deployment configures the program this way, so that the public image
+// holds no site data and no credentials.
+func (conf *Config) applyEnv() {
+	setStr(&conf.SiteName, "BLOG_SITE_NAME")
+	setStr(&conf.SiteURL, "BLOG_SITE_URL")
+	setStr(&conf.Listen, "BLOG_LISTEN")
+	setStr(&conf.DBPath, "BLOG_DB_PATH")
+	setStr(&conf.Terms, "BLOG_TERMS")
+	setStr(&conf.Footer, "BLOG_FOOTER")
+	setStr(&conf.SMTPHost, "BLOG_SMTP_HOST")
+	setStr(&conf.SMTPUser, "BLOG_SMTP_USER")
+	setStr(&conf.SMTPPass, "BLOG_SMTP_PASS")
+	setStr(&conf.MailFrom, "BLOG_MAIL_FROM")
+	setList(&conf.BlockedCountries, "BLOG_BLOCKED")
+	setList(&conf.TrustedProxies, "BLOG_TRUSTED_PROXIES")
+	setInt(&conf.ChatKeep, "BLOG_CHAT_KEEP")
+	setInt(&conf.InviteQuota, "BLOG_INVITE_QUOTA")
+
+	// The platform names the port. This value wins over BLOG_LISTEN,
+	// because the platform routes to that port only.
+	if port := os.Getenv("PORT"); port != "" {
+		conf.Listen = "0.0.0.0:" + port
+	}
+}
+
+func setStr(target *string, name string) {
+	if value := os.Getenv(name); value != "" {
+		*target = value
+	}
+}
+
+func setInt(target *int, name string) {
+	if value := os.Getenv(name); value != "" {
+		if num, err := strconv.Atoi(value); err == nil {
+			*target = num
+		}
+	}
+}
+
+func setList(target *[]string, name string) {
+	if value := os.Getenv(name); value != "" {
+		parts := strings.Split(value, ",")
+		list := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				list = append(list, trimmed)
+			}
+		}
+		*target = list
+	}
 }
 
 // Validate checks the values that the program cannot repair by itself.

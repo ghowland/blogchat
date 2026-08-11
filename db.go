@@ -658,7 +658,10 @@ func (app *App) SeedFirstUser(email, handle string) error {
 	if err := app.CreateLoginToken(uid, sum, 24*time.Hour); err != nil {
 		return err
 	}
-	fmt.Printf("root member %q created\nlogin link, valid 24 hours:\n%s/l/%s\n",
+	// The markers make the link findable in a platform log stream.
+	fmt.Printf("\n==================== ROOT LOGIN LINK ====================\n"+
+		"member: %s\nvalid:  24 hours\n%s/l/%s\n"+
+		"=========================================================\n\n",
 		handle, app.Conf().SiteURL, raw)
 	return nil
 }

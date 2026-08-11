@@ -53,7 +53,15 @@ func main() {
 		log.Fatalf("templates: %v", err)
 	}
 
-	if err := app.SeedFirstUser(*seedMail, *seedName); err != nil {
+	seedMailValue := *seedMail
+	seedNameValue := *seedName
+	if seedMailValue == "" {
+		seedMailValue = os.Getenv("BLOG_SEED_EMAIL")
+	}
+	if seedNameValue == "" {
+		seedNameValue = os.Getenv("BLOG_SEED_HANDLE")
+	}
+	if err := app.SeedFirstUser(seedMailValue, seedNameValue); err != nil {
 		log.Fatalf("seed: %v", err)
 	}
 

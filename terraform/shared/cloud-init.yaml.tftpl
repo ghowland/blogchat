@@ -1,0 +1,131 @@
+#cloud-config
+
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - ca-certificates
+  - jq
+
+write_files:
+  # Finds the data disk, formats it on first boot only, mounts it at /data,
+  # and adds an fstab entry so the mount survives a reboot.
+  - path: /usr/local/bin/blog-mount
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      WANT="${data_device}"
+
+      # 1. A disk that this script formatted before carries the label.
+      DEV="$(blkid -L blogdata 2>/dev/null || true)"
+
+      # 2. Otherwise wait for the device path that the platform gives.
+      if [ -z "$DEV" ]; then
+        i=0
+        while [ ! -b "$WANT" ] && [ $i -lt 60 ]; do sleep 2; i=$((i+1)); done
+        [ -b "$WANT" ] && DEV="$WANT"
+      fi
+
+      # 3. Otherwise find a disk with no filesystem and no partitions. The
+      #    partition test is what keeps this away from the boot disk.
+      if [ -z "$DEV" ]; then
+        for CAND in $(lsblk -dnp -o NAME,TYPE | awk '$2=="disk"{print $1}'); do
+          [ "$(lsblk -np -o NAME "$CAND" | wc -l)" -eq 1 ] || continue
+          [ -z "$(blkid -o value -s TYPE "$CAND" 2>/dev/null || true)" ] || continue
+          DEV="$CAND"
+          break
+        done
+      fi
+
+      [ -n "$DEV" ] || { echo "blog-mount: no data device found"; exit 1; }
+
+      if [ -z "$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)" ]; then
+        echo "blog-mount: formatting $DEV"
+        mkfs.ext4 -F -L blogdata "$DEV"
+      fi
+
+      UUID="$(blkid -o value -s UUID "$DEV")"
+      mkdir -p /data
+      grep -q "$UUID" /etc/fstab || \
+        echo "UUID=$UUID /data ext4 defaults,nofail 0 2" >> /etc/fstab
+      systemctl daemon-reload
+      mountpoint -q /data || mount /data
+      chmod 777 /data
+      mkdir -p /data/caddy
+      chmod 777 /data/caddy
+
+  # Docker must not start before /data is mounted. Without this, the
+  # container would bind a directory on the boot disk and make a second,
+  # empty database.
+  - path: /etc/systemd/system/docker.service.d/wait-for-data.conf
+    permissions: "0644"
+    content: |
+      [Unit]
+      RequiresMountsFor=/data
+
+  - path: /opt/blog/compose.yaml
+    permissions: "0644"
+    content: |
+      services:
+        blog:
+          image: ${image}
+          restart: unless-stopped
+          volumes:
+            - /data:/data
+          environment:
+            BLOG_DB_PATH: /data/blog.db
+            BLOG_LISTEN: 0.0.0.0:8080
+            BLOG_SITE_URL: https://${domain}
+            BLOG_SITE_NAME: ${site_name}
+            BLOG_MAIL_FROM: ${mail_from}
+            BLOG_SMTP_HOST: ${smtp_host}
+            BLOG_SMTP_USER: $${SMTP_USER}
+            BLOG_SMTP_PASS: $${SMTP_PASS}
+            BLOG_BLOCKED: ${blocked}
+            BLOG_TRUSTED_PROXIES: 172.16.0.0/12
+            BLOG_SEED_EMAIL: ${seed_email}
+            BLOG_SEED_HANDLE: ${seed_handle}
+          stop_grace_period: 30s
+
+        caddy:
+          image: caddy:2-alpine
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - /opt/blog/Caddyfile:/etc/caddy/Caddyfile:ro
+            - /data/caddy:/data
+
+  - path: /opt/blog/Caddyfile
+    permissions: "0644"
+    content: |
+      ${domain} {
+        reverse_proxy blog:8080
+      }
+
+  - path: /opt/blog/.env
+    permissions: "0600"
+    content: |
+      SMTP_USER=${smtp_user}
+      SMTP_PASS=${smtp_pass}
+
+%{ if snapshot_script != "" ~}
+  - path: /usr/local/bin/blog-snapshot
+    permissions: "0700"
+    content: |
+      ${indent(6, snapshot_script)}
+
+  - path: /etc/cron.d/blog-snapshot
+    permissions: "0644"
+    content: |
+      0 3 * * * root /usr/local/bin/blog-snapshot >> /var/log/blog-snapshot.log 2>&1
+%{ endif ~}
+
+runcmd:
+  - /usr/local/bin/blog-mount
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  - docker compose -f /opt/blog/compose.yaml up -d
+
