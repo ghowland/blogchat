@@ -43,7 +43,9 @@ type Session struct {
 	Current   bool
 }
 
-// Post is one thread. The creator owns the thread.
+// Post is one thread or one channel. The creator owns it. With IsChat true,
+// the row is a chat channel, the subject is the channel name, and the body
+// is the topic line.
 type Post struct {
 	ID        int64
 	UserID    int64
@@ -52,6 +54,8 @@ type Post struct {
 	Body      string
 	CreatedAt int64
 	UpdatedAt int64
+	IsChat    bool
+	LastAt    int64
 }
 
 // Reply is one comment inside a thread.
@@ -64,13 +68,15 @@ type Reply struct {
 	CreatedAt int64
 }
 
-// FeedRow is one line of the post list.
+// FeedRow is one line of the post list or of the channel list.
 type FeedRow struct {
 	ID        int64
 	Subject   string
 	Handle    string
 	CreatedAt int64
+	LastAt    int64
 	Replies   int64
+	IsChat    bool
 }
 
 // AuthHandler is a handler that runs only with a valid session.
@@ -106,4 +112,3 @@ func CSRFFromContext(req *http.Request) string {
 	}
 	return val
 }
-

@@ -12,6 +12,15 @@ import (
 // ErrNotFound reports a missing row. Handlers turn this into status 404.
 var ErrNotFound = errors.New("not found")
 
+// boolInt converts a Go boolean into the integer form that SQLite stores,
+// because SQLite has no boolean type.
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 // migrations holds the schema history. Never edit an entry after a release.
 // Add a new entry for each change. PRAGMA user_version holds the position.
 var migrations = []string{
@@ -53,7 +62,9 @@ var migrations = []string{
 		subject     TEXT    NOT NULL,
 		body        TEXT    NOT NULL,
 		created_at  INTEGER NOT NULL,
-		updated_at  INTEGER NOT NULL
+		updated_at  INTEGER NOT NULL,
+		is_chat     INTEGER NOT NULL DEFAULT 0,
+		last_at     INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE TABLE replies (
@@ -67,7 +78,8 @@ var migrations = []string{
 	CREATE INDEX idx_sessions_user  ON sessions(user_id);
 	CREATE INDEX idx_tokens_user    ON login_tokens(user_id);
 	CREATE INDEX idx_replies_post   ON replies(post_id, id);
-	CREATE INDEX idx_posts_time     ON posts(created_at DESC);
+	CREATE INDEX idx_posts_kind_time ON posts(is_chat, created_at DESC);
+	CREATE INDEX idx_posts_kind_last ON posts(is_chat, last_at DESC);
 	CREATE INDEX idx_users_inviter  ON users(invited_by);
 	`,
 }
@@ -370,25 +382,36 @@ func (app *App) PurgeExpired() error {
 
 // ---------- posts ----------
 
-// CreatePost adds a thread. The member becomes the owner of the thread.
-func (app *App) CreatePost(uid int64, subject, body string) (int64, error) {
+// CreatePost adds a thread or a channel. The member becomes the owner.
+// For a channel, the body holds the topic line and can be empty.
+func (app *App) CreatePost(uid int64, subject, body string, chat bool) (int64, error) {
 	now := time.Now().Unix()
 	result, err := app.dbh.Exec(`
-		INSERT INTO posts (user_id, subject, body, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)`, uid, subject, body, now, now)
+		INSERT INTO posts (user_id, subject, body, created_at, updated_at, is_chat, last_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		uid, subject, body, now, now, boolInt(chat), now)
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
 }
 
-// ListPosts returns one page of the feed, newest first.
-func (app *App) ListPosts(limit, offset int) ([]FeedRow, error) {
+// ListPosts returns one page of the blog feed or of the channel list.
+// The blog feed sorts on the creation time. The channel list sorts on the
+// time of the newest message, so that an active channel goes to the top.
+func (app *App) ListPosts(chat bool, limit, offset int) ([]FeedRow, error) {
+	// The order clause comes from a local constant only. No external input
+	// reaches this concatenation. Every other value stays a parameter.
+	order := "pst.created_at DESC"
+	if chat {
+		order = "pst.last_at DESC"
+	}
 	rows, err := app.dbh.Query(`
-		SELECT pst.id, pst.subject, usr.handle, pst.created_at,
+		SELECT pst.id, pst.subject, usr.handle, pst.created_at, pst.last_at,
 			(SELECT COUNT(*) FROM replies WHERE replies.post_id = pst.id)
 		FROM posts pst JOIN users usr ON usr.id = pst.user_id
-		ORDER BY pst.created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+		WHERE pst.is_chat = ?
+		ORDER BY `+order+` LIMIT ? OFFSET ?`, boolInt(chat), limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -398,31 +421,36 @@ func (app *App) ListPosts(limit, offset int) ([]FeedRow, error) {
 	for rows.Next() {
 		var row FeedRow
 		if err := rows.Scan(&row.ID, &row.Subject, &row.Handle,
-			&row.CreatedAt, &row.Replies); err != nil {
+			&row.CreatedAt, &row.LastAt, &row.Replies); err != nil {
 			return nil, err
 		}
+		row.IsChat = chat
 		list = append(list, row)
 	}
 	return list, rows.Err()
 }
 
-// CountPosts returns the total number of threads, for the page links.
-func (app *App) CountPosts() (int, error) {
+// CountPosts returns the number of threads or of channels, for the page links.
+func (app *App) CountPosts(chat bool) (int, error) {
 	var total int
-	err := app.dbh.QueryRow("SELECT COUNT(*) FROM posts").Scan(&total)
+	err := app.dbh.QueryRow(
+		"SELECT COUNT(*) FROM posts WHERE is_chat = ?", boolInt(chat)).Scan(&total)
 	return total, err
 }
 
-// GetPost returns one thread with the handle of the owner.
+// GetPost returns one thread or one channel with the handle of the owner.
+// The query does not filter on the kind, because the handler must know the
+// kind to select the correct page.
 func (app *App) GetPost(pid int64) (*Post, error) {
 	pst := &Post{}
 	err := app.dbh.QueryRow(`
 		SELECT pst.id, pst.user_id, usr.handle, pst.subject, pst.body,
-			pst.created_at, pst.updated_at
+			pst.created_at, pst.updated_at, pst.is_chat, pst.last_at
 		FROM posts pst JOIN users usr ON usr.id = pst.user_id
 		WHERE pst.id = ?`, pid).
 		Scan(&pst.ID, &pst.UserID, &pst.Handle, &pst.Subject, &pst.Body,
-			&pst.CreatedAt, &pst.UpdatedAt)
+			&pst.CreatedAt, &pst.UpdatedAt, &pst.IsChat, &pst.LastAt)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -486,6 +514,77 @@ func (app *App) ListReplies(pid int64) ([]Reply, error) {
 	return list, rows.Err()
 }
 
+// ListChatLines returns the newest messages of a channel. The result is in
+// the old-to-new order, so that the page reads from top to bottom.
+func (app *App) ListChatLines(pid int64, limit int) ([]Reply, error) {
+	rows, err := app.dbh.Query(`
+		SELECT rep.id, rep.post_id, rep.user_id, usr.handle, rep.body, rep.created_at
+		FROM (
+			SELECT * FROM replies WHERE post_id = ? ORDER BY id DESC LIMIT ?
+		) rep JOIN users usr ON usr.id = rep.user_id
+		ORDER BY rep.id ASC`, pid, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]Reply, 0, limit)
+	for rows.Next() {
+		var rep Reply
+		if err := rows.Scan(&rep.ID, &rep.PostID, &rep.UserID, &rep.Handle,
+			&rep.Body, &rep.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, rep)
+	}
+	return list, rows.Err()
+}
+
+// CreateChatLine adds one message to a channel, moves the channel to the top
+// of the list, and removes the oldest messages above the keep limit. The
+// three operations are in one transaction, so that the count cannot drift.
+func (app *App) CreateChatLine(pid, uid int64, body string, keep int) (int64, error) {
+	now := time.Now().Unix()
+
+	txn, err := app.dbh.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer txn.Rollback()
+
+	result, err := txn.Exec(`
+		INSERT INTO replies (post_id, user_id, body, created_at)
+		VALUES (?, ?, ?, ?)`, pid, uid, body, now)
+	if err != nil {
+		return 0, err
+	}
+	rid, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	if _, err := txn.Exec(
+		`UPDATE posts SET last_at = ? WHERE id = ?`, now, pid); err != nil {
+		return 0, err
+	}
+
+	// The inner select finds the row at position keep, counted from the
+	// newest. The delete removes that row and every older row, so exactly
+	// keep rows stay. When the channel holds fewer rows, the inner select
+	// returns nothing, the comparison is null, and nothing is deleted.
+	// The trim uses the row identifier and not the time, because two
+	// messages can share one second.
+	if _, err := txn.Exec(`
+		DELETE FROM replies WHERE post_id = ? AND id <= (
+			SELECT id FROM replies WHERE post_id = ?
+			ORDER BY id DESC LIMIT 1 OFFSET ?
+		)`, pid, pid, keep); err != nil {
+		return 0, err
+	}
+
+	return rid, txn.Commit()
+}
+
 // DeleteReply removes one comment. The author of the comment can do this,
 // and the owner of the thread can do this.
 func (app *App) DeleteReply(rid, uid int64) error {
@@ -536,4 +635,3 @@ func (app *App) SeedFirstUser(email, handle string) error {
 		handle, app.Conf().SiteURL, raw)
 	return nil
 }
-

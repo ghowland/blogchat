@@ -122,8 +122,19 @@ func (app *App) ShowTerms(res http.ResponseWriter, req *http.Request) {
 
 // ---------- feed and posts ----------
 
-// ShowFeed lists the threads, newest first.
+// ShowFeed lists the blog threads, newest first.
 func (app *App) ShowFeed(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	app.renderList(res, req, usr, false)
+}
+
+// ShowChats lists the chat channels, most recent activity first.
+func (app *App) ShowChats(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	app.renderList(res, req, usr, true)
+}
+
+// renderList serves both list pages. One function keeps the pagination
+// behaviour the same for the two kinds.
+func (app *App) renderList(res http.ResponseWriter, req *http.Request, usr *User, chat bool) {
 	conf := app.Conf()
 	page := 1
 	if text := req.URL.Query().Get("page"); text != "" {
@@ -133,40 +144,54 @@ func (app *App) ShowFeed(res http.ResponseWriter, req *http.Request, usr *User, 
 	}
 	offset := (page - 1) * conf.PostsPerPage
 
-	rows, err := app.ListPosts(conf.PostsPerPage, offset)
+	rows, err := app.ListPosts(chat, conf.PostsPerPage, offset)
 	if err != nil {
-		log.Printf("list posts: %v", err)
+		log.Printf("list posts chat=%v: %v", chat, err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
-	total, err := app.CountPosts()
+	total, err := app.CountPosts(chat)
 	if err != nil {
-		log.Printf("count posts: %v", err)
+		log.Printf("count posts chat=%v: %v", chat, err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
 
 	items := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
+		when := timeText(row.CreatedAt)
+		if chat {
+			when = timeText(row.LastAt)
+		}
 		items = append(items, map[string]any{
 			"id":      row.ID,
 			"subject": row.Subject,
 			"handle":  row.Handle,
-			"when":    timeText(row.CreatedAt),
+			"when":    when,
 			"replies": row.Replies,
 		})
+	}
+
+	base := "/feed"
+	name := "feed"
+	if chat {
+		base = "/chat"
+		name = "chats"
 	}
 
 	ctx := app.Base(req, usr)
 	ctx["posts"] = items
 	ctx["empty"] = len(items) == 0
+	ctx["chat"] = chat
+	ctx["base"] = base
+	ctx["keep"] = conf.ChatKeep
 	ctx["page"] = page
 	ctx["has_prev"] = page > 1
 	ctx["prev_page"] = page - 1
 	ctx["has_next"] = offset+len(rows) < total
 	ctx["next_page"] = page + 1
 	ctx["error"] = req.URL.Query().Get("error")
-	app.Render(res, req, "feed", ctx)
+	app.Render(res, req, name, ctx)
 }
 
 // ShowPost renders one thread with its replies.
@@ -187,8 +212,16 @@ func (app *App) ShowPost(res http.ResponseWriter, req *http.Request, usr *User, 
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
+	// A channel needs the chat page, because the blog page shows every reply
+	// with no limit. The identifier is valid, so the answer is a redirect
+	// and not an error.
+	if pst.IsChat {
+		http.Redirect(res, req, "/c/"+strconv.FormatInt(pid, 10), http.StatusSeeOther)
+		return
+	}
 
 	replies, err := app.ListReplies(pid)
+
 	if err != nil {
 		log.Printf("list replies %d: %v", pid, err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
@@ -248,7 +281,7 @@ func (app *App) CreatePostHandler(res http.ResponseWriter, req *http.Request, us
 		return
 	}
 
-	pid, err := app.CreatePost(usr.ID, subject, body)
+	pid, err := app.CreatePost(usr.ID, subject, body, false)
 	if err != nil {
 		log.Printf("create post: %v", err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
@@ -273,6 +306,13 @@ func (app *App) DeletePostHandler(res http.ResponseWriter, req *http.Request, us
 		return
 	}
 
+	// The list target comes from the form, because the row is gone after
+	// the delete and the kind cannot be read from the database.
+	target := "/feed"
+	if req.PostFormValue("kind") == "chat" {
+		target = "/chat"
+	}
+
 	if err := app.DeletePost(pid, usr.ID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			app.Fail(res, req, http.StatusForbidden, "you do not own this post")
@@ -282,7 +322,7 @@ func (app *App) DeletePostHandler(res http.ResponseWriter, req *http.Request, us
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
-	http.Redirect(res, req, "/feed", http.StatusSeeOther)
+	http.Redirect(res, req, target, http.StatusSeeOther)
 }
 
 // ---------- replies ----------
@@ -315,8 +355,13 @@ func (app *App) CreateReplyHandler(res http.ResponseWriter, req *http.Request, u
 		return
 	}
 
-	if _, err := app.GetPost(pid); err != nil {
+	pst, err := app.GetPost(pid)
+	if err != nil {
 		app.Fail(res, req, http.StatusNotFound, "the post does not exist")
+		return
+	}
+	if pst.IsChat {
+		app.Fail(res, req, http.StatusBadRequest, "that is a channel, not a post")
 		return
 	}
 	if _, err := app.CreateReply(pid, usr.ID, body); err != nil {
@@ -345,9 +390,14 @@ func (app *App) DeleteReplyHandler(res http.ResponseWriter, req *http.Request, u
 	}
 
 	target := "/feed"
+	prefix := "/p/"
+	if req.PostFormValue("kind") == "chat" {
+		target = "/chat"
+		prefix = "/c/"
+	}
 	if back := req.PostFormValue("post"); back != "" {
 		if pid, err := strconv.ParseInt(back, 10, 64); err == nil && pid > 0 {
-			target = "/p/" + strconv.FormatInt(pid, 10)
+			target = prefix + strconv.FormatInt(pid, 10)
 		}
 	}
 
@@ -357,6 +407,156 @@ func (app *App) DeleteReplyHandler(res http.ResponseWriter, req *http.Request, u
 			return
 		}
 		log.Printf("delete reply %d: %v", rid, err)
+		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+	http.Redirect(res, req, target, http.StatusSeeOther)
+}
+
+// ---------- chat ----------
+
+// ShowChannel renders one channel with its newest messages.
+func (app *App) ShowChannel(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	conf := app.Conf()
+	pid, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+	if err != nil || pid < 1 {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+
+	pst, err := app.GetPost(pid)
+	if errors.Is(err, ErrNotFound) {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+	if err != nil {
+		log.Printf("get channel %d: %v", pid, err)
+		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+	// A blog post needs the blog page. The redirect makes a wrong link
+	// self-correcting in both directions.
+	if !pst.IsChat {
+		http.Redirect(res, req, "/p/"+strconv.FormatInt(pid, 10), http.StatusSeeOther)
+		return
+	}
+
+	lines, err := app.ListChatLines(pid, conf.ChatPerPage)
+	if err != nil {
+		log.Printf("list chat lines %d: %v", pid, err)
+		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+
+	owner := pst.UserID == usr.ID
+	items := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		items = append(items, map[string]any{
+			"id":         line.ID,
+			"handle":     line.Handle,
+			"body":       line.Body,
+			"when":       timeText(line.CreatedAt),
+			"can_delete": owner || line.UserID == usr.ID,
+		})
+	}
+
+	ctx := app.Base(req, usr)
+	ctx["post"] = map[string]any{
+		"id":      pst.ID,
+		"subject": pst.Subject,
+		"body":    pst.Body,
+		"handle":  pst.Handle,
+		"when":    timeText(pst.CreatedAt),
+	}
+	ctx["has_topic"] = pst.Body != ""
+	ctx["lines"] = items
+	ctx["line_count"] = len(items)
+	ctx["empty"] = len(items) == 0
+	ctx["owner"] = owner
+	ctx["keep"] = conf.ChatKeep
+	ctx["error"] = req.URL.Query().Get("error")
+	app.Render(res, req, "chat", ctx)
+}
+
+// CreateChannelHandler makes a channel. The subject is the channel name and
+// the body is the optional topic line.
+func (app *App) CreateChannelHandler(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	if err := parseForm(res, req); err != nil {
+		app.Fail(res, req, http.StatusBadRequest, "the request is too large")
+		return
+	}
+	if !app.CheckCSRF(req, raw) {
+		app.Fail(res, req, http.StatusForbidden, "the form is expired, try again")
+		return
+	}
+	if !app.limits.Allow("channel:"+strconv.FormatInt(usr.ID, 10), 5, time.Minute) {
+		app.redirectError(res, req, "/chat", "too many channels, wait one minute")
+		return
+	}
+
+	subject, err := ValidSubject(req.PostFormValue("subject"))
+	if err != nil {
+		app.redirectError(res, req, "/chat", err.Error())
+		return
+	}
+	topic, err := ValidTopic(req.PostFormValue("body"))
+	if err != nil {
+		app.redirectError(res, req, "/chat", err.Error())
+		return
+	}
+
+	pid, err := app.CreatePost(usr.ID, subject, topic, true)
+	if err != nil {
+		log.Printf("create channel: %v", err)
+		app.Fail(res, req, http.StatusInternalServerError, "server error")
+		return
+	}
+	http.Redirect(res, req, "/c/"+strconv.FormatInt(pid, 10), http.StatusSeeOther)
+}
+
+// CreateChatLineHandler adds one message and trims the channel to the keep
+// limit from the configuration.
+func (app *App) CreateChatLineHandler(res http.ResponseWriter, req *http.Request, usr *User, raw string) {
+	if err := parseForm(res, req); err != nil {
+		app.Fail(res, req, http.StatusBadRequest, "the request is too large")
+		return
+	}
+	if !app.CheckCSRF(req, raw) {
+		app.Fail(res, req, http.StatusForbidden, "the form is expired, try again")
+		return
+	}
+	pid, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
+	if err != nil || pid < 1 {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+	target := "/c/" + strconv.FormatInt(pid, 10)
+
+	// Chat is a faster interaction than the blog, so the limit is higher
+	// and the counter is separate.
+	if !app.limits.Allow("chat:"+strconv.FormatInt(usr.ID, 10), 60, time.Minute) {
+		app.redirectError(res, req, target, "too many messages, wait one minute")
+		return
+	}
+
+	body, err := ValidBody(req.PostFormValue("body"), maxChatBody)
+	if err != nil {
+		app.redirectError(res, req, target, err.Error())
+		return
+	}
+
+	pst, err := app.GetPost(pid)
+	if err != nil {
+		app.Fail(res, req, http.StatusNotFound, "the channel does not exist")
+		return
+	}
+	if !pst.IsChat {
+		app.Fail(res, req, http.StatusBadRequest, "that is a post, not a channel")
+		return
+	}
+
+	if _, err := app.CreateChatLine(pid, usr.ID, body, app.Conf().ChatKeep); err != nil {
+		log.Printf("create chat line on %d: %v", pid, err)
 		app.Fail(res, req, http.StatusInternalServerError, "server error")
 		return
 	}
@@ -582,4 +782,3 @@ func urlValue(text string) string {
 	}
 	return buf.String()
 }
-

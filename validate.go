@@ -9,12 +9,14 @@ import (
 
 // Input limits. The platform accepts text only.
 const (
-	maxSubject = 200
-	maxPostBody = 16 * 1024
+	maxSubject   = 200
+	maxPostBody  = 16 * 1024
 	maxReplyBody = 4 * 1024
-	maxEmail  = 254
-	maxHandle = 24
-	minHandle = 2
+	maxChatBody  = 2 * 1024
+	maxTopic     = 200
+	maxEmail     = 254
+	maxHandle    = 24
+	minHandle    = 2
 )
 
 // CleanText removes carriage returns, removes control characters, and
@@ -72,8 +74,18 @@ func ValidBody(text string, limit int) (string, error) {
 	return text, nil
 }
 
+// ValidTopic checks the topic line of a channel. An empty value is correct,
+// because a channel needs a name only.
+func ValidTopic(text string) (string, error) {
+	text = CleanLine(text)
+	if utf8.RuneCountInString(text) > maxTopic {
+		return "", errors.New("the topic is too long")
+	}
+	return text, nil
+}
+
 // ValidEmail applies a minimal check. A full check is not possible, and the
-// delivery of the sign-in link is the real test of the address.
+// // delivery of the sign-in link is the real test of the address.
 func ValidEmail(text string) (string, error) {
 	text = strings.ToLower(CleanLine(text))
 	if len(text) < 3 || len(text) > maxEmail {
@@ -114,4 +126,3 @@ func ValidHandle(text string) (string, error) {
 	}
 	return text, nil
 }
-

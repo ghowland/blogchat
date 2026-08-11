@@ -1,18 +1,18 @@
 {{> header}}
-<h1>Posts</h1>
+<h1>Channels</h1>
 
 {{#error}}<p class="error">{{error}}</p>{{/error}}
 
-{{> postform}}
+{{> channelform}}
 
 {{#empty}}
-<p class="notice">There are no posts. Write the first one.</p>
+<p class="notice">There are no channels. Make the first one.</p>
 {{/empty}}
 
 {{#posts}}
 <article class="row">
-  <h2><a href="/p/{{id}}">{{subject}}</a></h2>
-  <p class="meta">{{handle}} &middot; {{when}} &middot; {{replies}} replies</p>
+  <h2><a href="/c/{{id}}">{{subject}}</a></h2>
+  <p class="meta">{{handle}} &middot; {{replies}} messages &middot; last {{when}}</p>
 </article>
 {{/posts}}
 
@@ -21,4 +21,10 @@
   <span>Page {{page}}</span>
   {{#has_next}}<a href="{{base}}?page={{next_page}}">Older</a>{{/has_next}}
 </nav>
+
+<p class="small">
+  Each channel keeps the newest {{keep}} messages. Older messages are removed
+  and cannot be recovered.
+</p>
 {{> footer}}
+

@@ -27,6 +27,8 @@ type Config struct {
 	InviteQuota      int      `json:"invite_quota"`
 	SessionDays      int      `json:"session_days"`
 	PostsPerPage     int      `json:"posts_per_page"`
+	ChatKeep         int      `json:"chat_keep"`
+	ChatPerPage      int      `json:"chat_per_page"`
 }
 
 // LoadConfig reads and validates the configuration file.
@@ -40,6 +42,8 @@ func LoadConfig(path string) (*Config, error) {
 		InviteQuota:      5,
 		SessionDays:      30,
 		PostsPerPage:     50,
+		ChatKeep:         500,
+		ChatPerPage:      100,
 	}
 
 	raw, err := os.ReadFile(path)
@@ -81,6 +85,15 @@ func (conf *Config) Validate() error {
 	if conf.PostsPerPage < 1 || conf.PostsPerPage > 200 {
 		return errors.New("posts_per_page must be between 1 and 200")
 	}
+	if conf.ChatKeep < 10 || conf.ChatKeep > 100000 {
+		return errors.New("chat_keep must be between 10 and 100000")
+	}
+	if conf.ChatPerPage < 10 || conf.ChatPerPage > 500 {
+		return errors.New("chat_per_page must be between 10 and 500")
+	}
+	if conf.ChatPerPage > conf.ChatKeep {
+		conf.ChatPerPage = conf.ChatKeep
+	}
 
 	// The ISO 3166-1 alpha-2 code for the United Kingdom is GB. The code UK
 	// is not assigned, so a block list that contains UK blocks nothing.
@@ -118,4 +131,3 @@ func (app *App) Reload(path string) error {
 	app.geo.Store(table)
 	return nil
 }
-

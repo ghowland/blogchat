@@ -31,6 +31,13 @@ func (app *App) Routes() http.Handler {
 	mux.HandleFunc("POST /p/{id}/delete", app.RequireAuth(app.DeletePostHandler))
 	mux.HandleFunc("POST /p/{id}/r", app.RequireAuth(app.CreateReplyHandler))
 	mux.HandleFunc("POST /r/{id}/delete", app.RequireAuth(app.DeleteReplyHandler))
+	// Chat channels. The path root /c/ keeps PathValue("id") unambiguous
+	// and makes the kind visible in the address.
+	mux.HandleFunc("GET /chat", app.RequireAuth(app.ShowChats))
+	mux.HandleFunc("POST /chat", app.RequireAuth(app.CreateChannelHandler))
+	mux.HandleFunc("GET /c/{id}", app.RequireAuth(app.ShowChannel))
+	mux.HandleFunc("POST /c/{id}/m", app.RequireAuth(app.CreateChatLineHandler))
+	mux.HandleFunc("POST /c/{id}/delete", app.RequireAuth(app.DeletePostHandler))
 	mux.HandleFunc("GET /keys", app.RequireAuth(app.ShowKeys))
 	mux.HandleFunc("POST /keys/revoke-others", app.RequireAuth(app.RevokeOtherKeys))
 	mux.HandleFunc("POST /logout", app.RequireAuth(app.Logout))
@@ -69,4 +76,3 @@ func (app *App) logRequest(next http.Handler) http.Handler {
 		next.ServeHTTP(res, req)
 	})
 }
-
