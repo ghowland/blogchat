@@ -36,12 +36,13 @@ func isHTMX(req *http.Request) bool {
 	return req.Header.Get("HX-Request") == "true"
 }
 
-// chatItem makes the template context of one chat line.
+// chatItem makes the template context of one chat line. Both the channel
+// page and the poll fragment use this, so a change here applies to both.
 func chatItem(line Reply, canDelete bool) map[string]any {
 	return map[string]any{
 		"id":         line.ID,
 		"handle":     line.Handle,
-		"body":       line.Body,
+		"parts":      bodyParts(line.Body),
 		"when":       clockText(line.CreatedAt),
 		"can_delete": canDelete,
 	}
