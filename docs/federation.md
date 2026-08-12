@@ -1489,3 +1489,124 @@ A reply that quotes a reply is handled identically, because the quoted item is a
 
 Stages 1 to 3 give threading of local replies against received parents. Stage 4 makes it order independent. Stage 5 makes it optional. A server that stops at stage 3 is correct and behaves well.
 
+---
+
+# Addendum 6 — The `reply_to` reference
+
+Adds a field. Corrects section 7.3, section 14 item 2, and appendix B.
+
+Section 14 states that a reply does not return to the first server. That stays true. This addendum does not change it and adds no return path.
+
+## 1. What this is
+
+A post may carry a `reply_to` value that names another post. The value is text and nothing resolves it. The two servers need no pair, no path, and no knowledge of each other.
+
+A post with a `reply_to` value is an ordinary post. It is not a comment, it does not attach to anything, and it appears in the topic list in its own right.
+
+**The meaning is: this post responds to that post.** Nothing more. No delivery, no receipt, no notification, no confirmation that the named post exists, and no confirmation that its writer will ever read this one. The two writers find each other only because both posts carry the same topic and a reader of that topic sees both.
+
+## 2. Format
+
+```
+handle:timestamp:subject
+```
+
+| Part | Content | Rule |
+|---|---|---|
+| `handle` | The handle of the writer of the named post | The handle character set, 24 characters at most |
+| `timestamp` | The `origin_time` of the named post | Unix seconds, decimal, no sign |
+| `subject` | The subject of the named post | The rest of the string, colons allowed |
+
+The separator is a colon. The split takes the **first two** colons only, so a subject that holds a colon stays whole.
+
+Total length: 300 characters at most. The three parts are the same three fields the reader already sees on the named post, so a member can write the value by hand, and the interface can build it with one action on a displayed post.
+
+## 3. Why these three fields
+
+They are the fields that travel unchanged to every server, from appendix B. `handle`, `origin_time`, and `subject` are identical on every copy of a post at every hop. A reference built from them means the same thing everywhere, without any global identity and without carrying provenance.
+
+The `content_hash` of section 6 would be a stronger key, but it is local and never travels, so no member could write it and no reader could verify it. The three visible fields are the only shared vocabulary the design has.
+
+## 4. Not unique
+
+The reference does not identify one post. Two servers may hold members with the same handle, and two posts may share a handle, a second, and a subject.
+
+This is accepted for the same reason as the handle blocks of addendum 3: the alternative is a global identity that carries the first server. The reference is a description that a reader interprets, not a key that a program resolves.
+
+## 5. Storage and transfer
+
+**New column on `posts`**
+
+| Column | Type | Default | Function |
+|---|---|---|---|
+| `reply_to` | TEXT | NULL | The reference, section 2 |
+
+**New field in the transfer record of section 7.3**
+
+```json
+"reply_to": "root:1754870400:The shadow war"
+```
+
+The value travels unchanged at every hop, like `handle` and `origin_time`. A prefix from `topic_prefix` does not touch it. Null when absent.
+
+**The hash of section 6 does not include it.** The value is:
+
+    SHA-256( handle || 0x00 || topic || 0x00 || subject || 0x00 || body || 0x00 || decimal(origin_time) )
+
+unchanged. Two posts identical except for `reply_to` collide and one is discarded. This is the correct behaviour, because such a pair is the same post published twice with a reference added on the second attempt.
+
+## 6. Validation
+
+A server accepts a `reply_to` value when:
+
+1. The length is 300 characters at most.
+2. Two colons at least are present.
+3. The first part is a valid handle, 1 to 24 characters of the handle set.
+4. The second part is decimal digits only, 1 to 20 of them.
+5. The third part is not empty.
+
+A value that fails any test is discarded and the post is stored with `reply_to` NULL. **The post is not rejected.** A malformed reference is a cosmetic fault, not a reason to lose the text.
+
+No server checks that the named post exists. No server can.
+
+## 7. Display and search
+
+The interface shows the value above the body as plain text, marked as a reference. It is not a link, because there is nothing to link to.
+
+A reader may search on it:
+
+```sql
+SELECT * FROM posts WHERE reply_to = ? ORDER BY created DESC;
+```
+
+An index on `reply_to` is optional. It is useful on a hub, where the store is large enough that a scan costs something.
+
+A useful local view: for a displayed post, search for posts whose `reply_to` matches the reference built from that post's own three fields. This shows the responses that reached **this** server. It is not the set of responses that exist. There is no way to obtain that set, and the interface should not suggest that the list is complete.
+
+## 8. How two writers find each other
+
+1. A writes a post on server 1, topic `games.turnbased`.
+2. The post travels through pairs and relays and reaches server 2, where B reads it.
+3. B writes a new post on server 2, topic `games.turnbased`, with `reply_to` naming A's post.
+4. B's post travels and may reach server 1, where A reads it.
+
+Step 4 is not guaranteed. It happens when a path exists from server 2 back to server 1 and every pair on that path carries the topic. It may take any amount of time or never occur.
+
+**The topic is what makes it possible.** A response written into a different topic travels a different route and will not meet the same readers. This is the one convention the two writers must share, and it is a convention rather than a rule.
+
+## 9. Properties
+
+1. **No delivery guarantee.** Nothing confirms that the named writer received the response.
+2. **No receipt.** Nothing reports back to the responder.
+3. **No thread.** The two posts are separate rows and separate items in the list. There is no parent, no child, and no `parent_seq`.
+4. **No resolution.** No server looks up the named post, and a reference to a post that never existed is stored and shown like any other.
+5. **No new metadata.** The three fields already travel, so nothing about the first server, the path, or the hop count is added.
+6. **The topic is the meeting place.** Two posts meet only where both are carried.
+
+## 10. Limits
+
+| Item | Value |
+|---|---|
+| `reply_to` length | 300 characters |
+| Handle part | 24 characters |
+| Timestamp part | 20 digits |
