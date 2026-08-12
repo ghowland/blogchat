@@ -717,3 +717,495 @@ The last row is a known and accepted collision. Two different people with the sa
 | `topic_prefix` is set | The stored topic holds the prefix, and the hash uses the topic without it |
 
 The last row matters. The hash is computed before the prefix, so the same item at two servers with different prefixes gives the same hash. Without this, a ring through two servers with different prefixes would not be detected.
+
+---
+
+# Addendum 1 — Relay is automatic
+
+Corrects section 9 step 5, section 10, section 11.3, and appendix J. Those sections state that an administrator publishes each received item by hand. That is wrong. Nothing in the design requires it, and a per-item human step does not scale past a few peers.
+
+**Relay is a property of the pair, set once when the link is made. It applies to every item that arrives through that pair, with no further action.**
+
+## 1. Replaces section 9 step 5
+
+A received item is stored with `is_remote` 1 and `peer_id` set. The publication state comes from the pair:
+
+| `peers.relay` | Effect at receipt |
+|---|---|
+| 0 | Stored with `published` 0 and `pub_seq` NULL. The item is readable on this server and goes no further. |
+| 1 | Stored with `published` 1 and a new `pub_seq` from the local counter, in the same transaction. The item goes to every other pair on the next cycle. |
+
+The default for a new pair is 0. The administrator sets it to 1 to make the pair a relay. This is one decision at the time of the link, not a decision for each item.
+
+## 2. New column on `peers`
+
+| Column | Type | Default | Function |
+|---|---|---|---|
+| `relay` | INTEGER | 0 | 1 makes every item from this pair relay onward |
+
+## 3. Replaces section 9, the transaction
+
+Steps 5, 6, and 7 become one transaction that also assigns the sequence when the pair relays:
+
+```sql
+BEGIN IMMEDIATE;
+-- when peers.relay = 1
+UPDATE pub_counter SET next = next + 1;
+INSERT INTO posts (handle, topic, subject, body, origin_time,
+                   is_remote, peer_id, content_hash,
+                   published, pub_seq)
+VALUES (?, ?, ?, ?, ?, 1, ?, ?,
+        1, (SELECT next FROM pub_counter));
+INSERT INTO peer_seq_map (peer_id, remote_seq, local_id) VALUES (?, ?, last_insert_rowid());
+UPDATE peers SET pull_cursor = ? WHERE id = ?;
+COMMIT;
+```
+
+When `relay` is 0, the two counter statements are omitted and the insert writes `published` 0 and `pub_seq` NULL.
+
+A conflict on the hash index rolls the whole transaction back except the cursor update. The counter value is consumed and skipped. Gaps in the sequence are harmless, because the cursor is a high water mark and not a count.
+
+## 4. Replaces section 11.3
+
+The administrator does not act on each item. The administrator acts on the pair and on exceptions:
+
+| Control | Scope | When |
+|---|---|---|
+| `relay` 0 or 1 | Every item of the pair | Set at the time of the link |
+| `topic_filter` | Every item of the pair | Set at the time of the link |
+| `enabled` 0 | The pair | On a problem |
+| Delete a pair | Every item received through it | On a problem |
+| Delete an item | One item | On a report |
+
+Deletion of an already relayed item is local, as section 14 states. The onward copies stay.
+
+## 5. Replaces the relay paragraph in section 10
+
+An item propagates without any human in the path. A chain of pairs with `relay` 1 carries an item the full length of the chain at the speed of the sync intervals. The onward record holds `remote` true and a new `seq` from each server in turn.
+
+This is the property that makes the design a federation rather than a set of manually mirrored servers.
+
+## 6. Corrects appendix J
+
+The statement that the administrator performs a selection on each item is wrong, and the legal reasoning built on it was wrong with it.
+
+The correct statement: the administrator selects the **peers** and the **topic filter**, and content passes automatically inside those choices. This is the same posture as an internet service provider, a mailing list relay, and a Usenet server, all of which have been treated as distributors rather than publishers of the traffic they carry. The distributor position under *Smith v. California* (1959) rests on liability arising at notice, not on inspection in advance — a bookstore is a distributor precisely because it does **not** read every book.
+
+Automatic relay therefore strengthens the distributor position rather than weakening it. The earlier appendix had it backwards. The operational requirement stays the same: on notice, the administrator must be able to find and delete an item, which the `peer_id` column and the topic index support.
+
+This is general information about the doctrine and not legal advice.
+
+## 7. Corrects appendix D
+
+Add:
+
+| Event | Detection | Effect | Action |
+|---|---|---|---|
+| A relay pair carries unwanted content onward before anyone reads it | A report from a downstream server | Copies exist beyond reach | Set `relay` 0 on the pair, or drop the pair. Past copies stay. |
+
+This is the cost of automatic relay and it is inherent. A server that relays automatically will at some point have relayed something its administrator would not have chosen. The controls are the pair and the filter, applied before the fact, because no control exists after it.
+
+## 8. Corrects appendix F
+
+Automatic relay is the reason the volume table understates the arriving load. With `relay` 1 on both sides of a chain, the volume at any server is the published volume of the whole reachable set, not the volume of its direct peers. The two bounds in appendix F, the topic filter and the per-pair keep limit, are therefore not optional at any significant peer count. They are the only things that bound the store.
+
+---
+
+# Addendum 2 — Topic filter lists, per direction
+
+Corrects section 2.2, section 9 step 1, section 11.2, and appendix F. The specification defines `topic_filter` as one glob on one pair record. That is too coarse. A pair needs a list of globs, and the list is per direction.
+
+## 1. Replaces the `topic_filter` column
+
+`peers.topic_filter` is removed. A new table holds the lists.
+
+**Table `peer_filters`**
+
+| Column | Type | Function |
+|---|---|---|
+| `peer_id` | INTEGER | The pair |
+| `direction` | TEXT | `in` or `out` |
+| `pattern` | TEXT | One glob |
+| `ord` | INTEGER | The order of evaluation |
+
+A pair holds N rows for `in` and M rows for `out`. Both counts may be zero.
+
+## 2. Semantics
+
+An item matches the list when it matches **any** pattern in the list. The list is a set of alternatives, not a sequence of rules, so the order has no effect on the result. `ord` exists for stable display only.
+
+An empty list means **nothing passes** in that direction. This is the safe default. An administrator that wants everything writes one line:
+
+```
+*
+```
+
+The evaluation uses the SQLite `GLOB` operator, or an equivalent function in Go. The topic character set holds no glob character, so no escape is needed.
+
+## 3. The two directions
+
+| Direction | Applied by | Applied to | Effect |
+|---|---|---|---|
+| `out` | The origin, when it builds a response | Items it would send | The origin decides what it offers this pair |
+| `in` | The target, at receipt, section 9 step 1 | Items that arrive | The target decides what it keeps |
+
+The two lists are independent and neither side sees the other. An item passes only when it matches both, so the effective set is the intersection. Each side can narrow without asking the other.
+
+The `out` list is the more useful of the two, because it saves bandwidth. An origin that filters on send transfers nothing the target would discard. The `in` list stays necessary as a defence, because a peer may not filter correctly.
+
+## 4. Replaces section 9 step 1
+
+1. **Filter.** Test the topic against the `in` list of the pair. No match discards the item and moves the cursor.
+
+## 5. The origin side, replaces the transfer query
+
+```sql
+SELECT id, pub_seq, kind, handle, topic, subject, body, origin_time, is_remote
+  FROM posts
+ WHERE published = 1
+   AND pub_seq > ?
+   AND EXISTS (
+       SELECT 1 FROM peer_filters
+        WHERE peer_id = ? AND direction = 'out'
+          AND posts.topic GLOB pattern
+   )
+ ORDER BY pub_seq ASC
+ LIMIT ?;
+```
+
+The cursor still moves over the full sequence, not over the filtered set. The response carries `high` as the highest `pub_seq` examined, not the highest sent, so a batch that matches nothing still advances the cursor. Without this a pair with a narrow filter would re-examine the same rows on every cycle.
+
+**This changes the `high` field of section 7.3.** `high` is the highest sequence the origin examined in this batch. `more` is true when rows exist above `high`.
+
+## 6. The pattern of a hub
+
+This is the arrangement the lists are for.
+
+A hub peers widely with `in` set to `*` and `relay` 1. It accumulates everything reachable and offers all of it.
+
+A reader server peers with the hub only, and sets `in` to the subtrees it wants:
+
+```
+games.turnbased.*
+games.strategy.*
+tools.zig.*
+```
+
+The hub carries the aggregation cost. The reader server carries only what it reads. Neither one needs any agreement about names beyond the strings themselves.
+
+| Role | `in` list | `out` list | `relay` | Store |
+|---|---|---|---|---|
+| Hub | `*` | `*` | 1 | Everything reachable |
+| Reader server | Narrow list | Local topics only | 0 | Local plus the chosen subtrees |
+| Publisher only | Empty | Own topics | 0 | Local only |
+| Private pair | Agreed subtree | Agreed subtree | 0 | Local plus that subtree |
+
+A hub is not a privileged node. It holds no authority, approves nothing for anyone, and any server may become one or stop being one. Several hubs may exist with different coverage, and a reader server may peer with more than one. Dropping a hub costs the reader server nothing but the feed.
+
+The `out` list is what lets a server be a hub for some peers and not for others. A hub may offer `*` to a trusted peer and `games.*` to another, from the same store.
+
+## 7. Interaction with `topic_prefix`
+
+Order at receipt: the `in` list is tested against the topic **as it arrived**, then the prefix is added. The filter and the sender therefore agree on what the pattern means.
+
+An administrator that adds a prefix must remember that the local reading globs then need the prefix, while the pair filter does not.
+
+## 8. Corrects appendix F
+
+The topic filter row of the controls table now reads: the `out` list bounds what a pair transfers, and the `in` list bounds what a pair stores. Because the lists are per direction, a server can accept a wide feed from one peer and offer a narrow one to another, so the arriving volume and the offered volume are separately controlled.
+
+An empty `in` list is the default for a new pair, so a newly approved pair transfers nothing until the administrator writes at least one pattern. This is deliberate. A pair that is approved by accident carries nothing.
+
+## 9. Limits
+
+| Item | Value |
+|---|---|
+| Patterns in one list | 64 |
+| Length of a pattern | 128 characters |
+| Characters valid in a pattern | The topic set, plus `*`, `?`, `[`, `]`, `-` |
+
+A pattern that holds any other character is rejected when the administrator saves it.
+
+---
+
+# Addendum 3 — Scale
+
+Extends the federation specification. Records the resource behaviour of the design and the properties that change with the count of servers. Written because the resource questions have obvious answers that are repeatedly assumed to be otherwise.
+
+---
+
+## 1. The store is a window, not an archive
+
+Every server holds a fixed count of items and removes the oldest. This is the same mechanism as the chat trim in the base specification, applied to received content.
+
+**There is no growth curve.** The store reaches its steady state at the moment the window fills and stays there. The count does not depend on the count of servers, the count of pairs, the age of the network, or the volume of the reachable set.
+
+The quantity that changes with the volume of the network is not the size of the store. It is the wall clock time the window covers. A busier network gives a shorter history at the same item count.
+
+### 1.1 The arithmetic
+
+| Item | Value |
+|---|---|
+| Typical post | ~1 KB |
+| Chat message | ~150 bytes |
+| Field limit, post body | 16 KB |
+| 100,000 items at 1 KB | 100 MB |
+| 1,000,000 items at 1 KB | 1 GB |
+
+A relay holding 100,000 items holds 100 MB. This fits in the RAM of the smallest instance any provider sells. The SQLite file is durability for a restart. In normal operation the working set is resident and no read reaches the disk.
+
+**Storage is not a constraint of this design at any server count the design reaches.** A specification of the store belongs in the window count, not in a capacity plan.
+
+### 1.2 The window is the tuning control
+
+An administrator sets one number. That number, together with the accepted topics, determines the history depth:
+
+| Accepted topics | Window at 100,000 items |
+|---|---|
+| `*` | Hours to days |
+| `games.*` | Weeks |
+| `games.babylon5` | Months to years |
+
+A narrow filter buys history depth. This is the trade an administrator actually makes, and it is a good one: a group with a specific interest wants deep history in its own topic and no history at all in every other topic.
+
+---
+
+## 2. Bandwidth is not a constraint
+
+The content is text. The field limits in section 12 of the federation specification cap a post body at 16 KB and a chat message at 2 KB. A typical item is about 1 KB.
+
+A server sends each item once for each pair. At the cap of 50 pairs, one item costs 50 KB of egress. A server relaying 10,000 items in a day at the pair cap sends 500 MB in that day, which is under 50 kbit/s averaged.
+
+| Case | Egress |
+|---|---|
+| Median server, 3 pairs, 1,000 items/day | 3 MB/day |
+| Relay, 20 pairs, 10,000 items/day | 200 MB/day |
+| Relay at the pair cap, 10,000 items/day | 500 MB/day |
+
+These figures are inside the included allowance of every instance in the cost table of the base specification. **Bandwidth does not enter the design of this system.** A future analysis that treats the multiplication by pair count as a limit has mistaken text for media.
+
+---
+
+## 3. The cost of a relay is the pairing, not the hardware
+
+A relay is a server with a broad filter and a high pair count. Sections 1 and 2 give its resource cost: a fixed store of a few hundred megabytes and an egress of a few hundred megabytes a day.
+
+**A relay runs on the cheapest instance available.** There is no hardware reason for relays to be scarce, and no reason to treat relay operation as a burden borne by a few volunteers.
+
+The cost of a relay is one out-of-band key exchange for each pair, performed by a person. That, and the pair cap of 50, are the only limits on relay capacity.
+
+Two consequences:
+
+- Relays are numerous, because they are nearly free to run.
+- The loss of any one relay is not an event. Replacement is a new instance and a set of key exchanges.
+
+---
+
+## 4. The topic filter is the routing mechanism
+
+The `topic_filter` glob on each pair is not a control for disk pressure. It is how the network routes.
+
+Each server declares, for each pair, which topics it accepts. The union of those declarations is the topology. There is no single graph:
+
+**There is one graph for each topic, overlaid on the same servers and the same pairs.**
+
+- A server accepting `games.*` on one pair and `music.*` on another belongs to two networks that share its hardware and nothing else.
+- An item under `games.babylon5` travels only the subgraph that accepts it. A server outside that subgraph spends nothing on it — no transfer, no store, no window pressure.
+- Two servers may hold a pair and still be disconnected for a given topic.
+
+### 4.1 The effect of growth
+
+More servers does not mean a denser network. It means a more selective one. Each new administrator accepts the slice their members read, so the subgraph for any one topic stays proportionate to the interest in that topic rather than to the size of the network.
+
+This is the property that makes the design indifferent to the server count. Growth in servers that do not accept a topic has no effect on any server that does.
+
+---
+
+## 5. Propagation
+
+Propagation time is the sum of the sync intervals along the path, plus up to one interval of phase offset at each hop.
+
+| Servers | Diameter within a topic subgraph | Time at 60 s intervals |
+|---|---|---|
+| 100 | 3–4 hops | 3–8 minutes |
+| 1,000 | 4–5 hops | 4–10 minutes |
+
+Path length grows with the logarithm of the server count. A tenfold growth in the network adds approximately one hop.
+
+The graph is not designed. It grows the way trust grows, because each pair is a relationship between two administrators who already know each other. This produces high clustering and short paths. The routing behaviour is a consequence of that structure and not of any routing decision.
+
+---
+
+## 6. Flooding
+
+A hostile server publishes at volume. The item reaches every server in the subgraph that accepts its topic.
+
+Three properties bound the damage:
+
+**The filter bounds the reach.** A flood under `games.*` does not touch a server that accepts only `music.*`. The flood is confined to the subgraph that asked for the topic.
+
+**The window clears it.** The flood ages out of every store at the same rate as everything else. There is no cleanup operation, no moderation queue, and no administrator action required for the content to leave. **The sliding window makes the network self-healing against volume attacks.**
+
+**The lasting cost is history, not storage.** What the flood destroys is the window depth of the servers it reached, for the period it ran. The store size never changes.
+
+### 6.1 The asymmetry that remains
+
+The cost of the attack is constant. The cost of the defence rises with distance from the source, because provenance does not travel and an administrator can only cut the pair that fed them — which carries legitimate content from a whole region.
+
+The mitigations are the filter and the window above, and the pairing requirement itself. A flooder needs a peer, and a peer is a person who performed a key exchange. The out-of-band exchange is the filter that operates before the fact.
+
+---
+
+## 7. What actually changes with scale
+
+Three things. None is a resource.
+
+**7.1 The topic namespace becomes contested.** The dotted topic string is the only shared name in the system. Nothing enforces agreement on it, and it determines routing. Two groups using different strings for one subject are two networks. Two groups using one string for different subjects collide in every filter that accepts it. At a small server count this is settled by conversation. At a large one, competing strings for one subject are permanent.
+
+`topic_prefix` is the tool that bridges them. One server maps an incoming topic onto another string at receipt. This merges two topic communities without the agreement of either, by the unilateral decision of one administrator.
+
+**7.2 Pairing is the only rate limiter.** Each link costs a human key exchange. The growth rate of the network is bounded by the rate at which trust relationships form and by nothing technical. This is the governor of the design and it is the correct one.
+
+**7.3 Discovery has no mechanism.** There is no directory by construction. At a small server count an administrator knows the people they want to pair with. At a large one they do not. In practice discovery moves into the content: an endpoint and a public key published under an agreed topic, relayed like any other item, read by an administrator who then performs the exchange out of band. Nothing in the program supports this and nothing needs to.
+
+---
+
+## 8. Read at distance, discuss locally
+
+Stated here because it is the reason several of the properties above hold.
+
+The design carries publications. It does not carry replies. A member who reads an item from six hops away discusses it on their own server, and that discussion stays there. The same item relayed to fifty servers produces fifty independent local conversations that never merge.
+
+This removes the entire class of problems that cross-server threading creates: distributed identity, reply attribution, thread state agreement, partial thread views, and per-item signatures.
+
+The absence of the reply path is what permits the absence of provenance, and the absence of provenance is what makes the first server unidentifiable. **These are one decision, not three.** A future change that adds a reply path removes the other two properties with it.
+
+---
+
+## 9. Summary table
+
+| Property | 100 servers | 1,000 servers |
+|---|---|---|
+| Store per server | Fixed by the window | Identical |
+| Bandwidth | Trivial | Trivial |
+| Relay hardware cost | Near zero | Near zero |
+| Diameter within a topic | 3–4 hops | 4–5 hops |
+| Propagation | 3–8 min | 4–10 min |
+| Window depth, broad filter | Longer | Shorter |
+| Window depth, narrow filter | Unchanged | Unchanged |
+| Effective topology | One graph per topic | Many graphs per topic, more selective |
+| Flood | Self-clears | Self-clears |
+| Growth governor | Human pairing | Human pairing |
+
+**Nothing technical changes between these two columns.** The window depth for broad-filter servers shortens, which moves administrators toward narrower globs, which separates the network into topic subgraphs. That separation is the design working, not the design degrading.
+
+A network of a thousand servers is not one large network. It is several hundred small ones sharing infrastructure, which is the correct shape for a federation of independent groups.
+
+---
+
+# Addendum 4 — Handle block lists, per pair and per direction
+
+Corrects section 9 step 1, section 11.3, section 11.4, and appendix I. The specification states that the pair is the only control available at receipt. That is too narrow. An administrator holds a list of blocked handles on a pair and blocks any number of them without dropping the pair.
+
+## 1. New table `peer_handle_blocks`
+
+| Column | Type | Function |
+|---|---|---|
+| `peer_id` | INTEGER | The pair |
+| `direction` | TEXT | `in` or `out` |
+| `handle` | TEXT | One blocked handle, lower case |
+| `added` | INTEGER | The time the administrator added the row |
+| `note` | TEXT | Free text for the administrator |
+
+The primary key is `(peer_id, direction, handle)`.
+
+A pair holds N rows for `in` and M rows for `out`. Both counts may be zero. The structure matches the glob lists of addendum 2: a list per direction per pair, edited as a set of lines.
+
+## 2. Semantics
+
+An item is discarded when its `handle` matches **any** row in the list for that pair and direction. The match is exact and case-insensitive. There is no glob, because a handle is a name and not a tree.
+
+An empty list blocks nothing. This is the opposite default from the glob lists of addendum 2, and it is correct: a glob list states what a pair carries, and a block list states the exceptions to it.
+
+| Direction | Applied by | Effect |
+|---|---|---|
+| `in` | The target, at receipt | None of the listed handles enters this server through this pair |
+| `out` | The origin, when it builds a response | This pair is offered nothing from the listed handles |
+
+The `out` list blocks local members of the origin server from reaching one specific peer, while those members still reach every other peer. The `in` list blocks incoming names.
+
+## 3. Order of evaluation, replaces section 9 step 1
+
+1. **Block.** Test `handle` against the `in` block list of the pair. A match discards the item and moves the cursor.
+2. **Filter.** Test `topic` against the `in` glob list of the pair. No match discards the item and moves the cursor.
+
+The block list runs first. A blocked handle is discarded whatever its topic.
+
+On the origin side the `out` list is added to the transfer query of addendum 2:
+
+```sql
+AND posts.handle COLLATE NOCASE NOT IN (
+    SELECT handle FROM peer_handle_blocks
+     WHERE peer_id = ? AND direction = 'out'
+)
+```
+
+The cursor still moves over the full sequence. `high` remains the highest sequence examined, so a batch that is entirely blocked still advances the pair.
+
+## 4. Collisions are accepted
+
+A handle is not unique across servers, and provenance does not travel, so a listed handle blocks every member with that name that arrives through that pair, from any server in the reachable set behind it.
+
+This is a known and accepted property. The reasoning:
+
+- The alternative is a globally unique author identity, which would carry the first server and destroy the anonymity in section 10.
+- The list is per pair, so the collateral loss is limited to one link and affects no other pair and no other server.
+- The administrator removes a line at any time.
+- At the scale this design targets, a handle collision inside one feed is uncommon, and the cost when it happens is the loss of one writer's posts on one server.
+
+**Nothing detects a collision and nothing warns of one.** An administrator that blocks a common handle should expect to lose unrelated writers with that name. The `note` column exists so the administrator records why a line is there.
+
+## 5. Effect on existing content
+
+A list applies to items that arrive after the line is added. It does not remove items already stored. An administrator that wants both adds the lines and then deletes the existing rows:
+
+```sql
+DELETE FROM posts
+ WHERE peer_id = ?
+   AND handle COLLATE NOCASE IN (?, ?, ?);
+```
+
+Items already relayed onward are beyond reach, as section 14 states.
+
+## 6. Blocks and relay
+
+When `relay` is 1, a blocked handle is discarded at receipt and therefore never takes a `pub_seq` and never goes onward. A block on an inbound pair removes those handles from everything this server relays.
+
+A server that relays and blocks is narrowing the feed for every server behind it. That is a local decision with reach, and it is consistent with the rest of the design: no server can force another to carry anything, and no server can force another to drop anything.
+
+## 7. Corrects section 11.4
+
+The statement that the pair is the only working control is replaced. The controls at receipt, from coarse to fine:
+
+| Control | Scope | Collateral |
+|---|---|---|
+| Drop the pair | Every item ever received through it | Total for that link |
+| `enabled` 0 | Future items of the pair | Holds what is stored |
+| Glob list, addendum 2 | Topic subtrees of the pair | Whole subtrees |
+| Handle block list | Named handles of the pair | Every writer with those names behind that pair |
+| Delete an item | One item | None |
+
+The handle list is the finest control that operates before storage. The substring filter of section 11.3 stays a convenience only, since a writer who knows it avoids it, while a handle block cannot be avoided without changing handle — and a changed handle is a new name that the administrator can add to the list.
+
+## 8. Corrects appendix I
+
+The row "a peer sends one bad author among good ones" is revised. The control is the `in` handle block list, it works, and its cost is the collision property of section 4 rather than the loss of the whole pair.
+
+## 9. Limits
+
+| Item | Value |
+|---|---|
+| Handles in one list | 1,000 |
+| Length of a handle | 24 characters, as section 12 |
+
+The lists are held in memory and reloaded on SIGHUP with the pair records, so a lookup costs no query.
