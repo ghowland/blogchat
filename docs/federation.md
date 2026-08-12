@@ -1209,3 +1209,283 @@ The row "a peer sends one bad author among good ones" is revised. The control is
 | Length of a handle | 24 characters, as section 12 |
 
 The lists are held in memory and reloaded on SIGHUP with the pair records, so a lookup costs no query.
+
+---
+
+# Addendum 5 — Replies by quotation
+
+Extends section 7, section 9, and section 14 property 2. Corrects Addendum 3 section 8 in part.
+
+Section 14 property 2 states that a reply does not return to the first server. Addendum 3 section 8 states that the absence of a reply path is what permits the absence of provenance. The first statement is a limit of the original transfer model, not a necessary property. The second holds only for a reply path carried **in the protocol**.
+
+This addendum defines a reply mechanism that carries no new field, adds no protocol state, and touches no anonymity property. A reply travels as an ordinary published item. Its relationship to its parent is carried in its own body, and every server resolves that relationship locally from a value it already computes.
+
+The mechanism is optional. A server that does not want it sets one flag and behaves exactly as the base specification describes.
+
+---
+
+## 1. The principle
+
+`content_hash` is computed from the item fields only, and every server computes the same value for the same item. It is already the duplicate key of section 6.
+
+A reply quotes the fields of its parent in its own body. Those fields are exactly the fields that already travelled with the parent. A receiving server therefore recomputes the parent hash from the quote and finds the parent in its own store with one lookup.
+
+**The identity of the parent is its content. Nothing else is needed, and nothing else travels.**
+
+The quote block is also the display of the parent for a reader whose server does not hold it, so the mechanism costs nothing beyond what a quoted reply already contains.
+
+---
+
+## 2. What a reply is
+
+A member reads an item, local or received, and writes a reply. The server writes an ordinary local row:
+
+| Field | Value |
+|---|---|
+| `handle` | The member on this server |
+| `topic` | The topic of the parent |
+| `subject` | The subject of the parent, or a local convention |
+| `origin_time` | The current time at this server |
+| `is_remote` | 0 |
+| `body` | The quote block, then the reply text |
+| `content_hash` | Computed from the fields above, as section 6 |
+| `quoted_hash` | The parent hash, computed from the quote block, section 5 |
+
+Publication follows section 5 without change. The row takes a `pub_seq` when published, transfers to every pair whose `out` list matches the topic, and relays under Addendum 1 in the ordinary way.
+
+**A reply is a post.** It is filtered, hashed, relayed, trimmed, and loop-controlled by the existing rules with no exception.
+
+---
+
+## 3. The quote block
+
+The block is the first part of the body. Each line starts with `>` and a space. The first line is the header, in this order and with this separator:
+
+```
+> handle @ decimal(origin_time) | topic | subject
+> The body of the parent.
+> Further lines of the parent body.
+```
+
+An empty line ends the block. The reply text follows.
+
+The fields are the five inputs to `content_hash`, in the order section 6 gives them. A parser reads the header line for the first three, and the remaining quoted lines, with the `> ` prefix removed and the final newline discarded, for the body.
+
+| Field | Source in the block |
+|---|---|
+| `handle` | Header, before `@` |
+| `origin_time` | Header, between `@` and the first `|` |
+| `topic` | Header, between the first and second `|` |
+| `subject` | Header, after the second `|` |
+| `body` | Every line after the header, prefix removed |
+
+A quoted body above the field limit of section 12 is truncated by the writer. A truncated quote does not produce the parent hash and the reply is treated as an orphan by section 6. A server that truncates should mark the quote as partial for the reader.
+
+The block is text. A reader of a server that does not implement this addendum sees a quoted reply and loses nothing.
+
+---
+
+## 4. New columns
+
+### 4.1 On `posts`
+
+| Column | Type | Default | Function |
+|---|---|---|---|
+| `quoted_hash` | BLOB | NULL | The `content_hash` of the quoted parent, section 5 |
+| `parent_id` | INTEGER | NULL | The local row of the parent, when resolved |
+
+Both are local. Neither travels. `quoted_hash` is derived from the body at write and at receipt, so a server that adds the column later can populate it by re-reading the bodies it holds.
+
+### 4.2 On `peers`
+
+| Column | Type | Default | Function |
+|---|---|---|---|
+| `accept_replies` | INTEGER | 1 | 0 discards every received item that carries a quote block |
+
+### 4.3 Server settings
+
+| Setting | Default | Function |
+|---|---|---|
+| `thread_replies` | 1 | 0 stores an accepted reply as an ordinary item and computes no hash |
+| `orphan_replies` | `keep` | `keep` stores a reply with no resident parent at top level. `drop` discards it. |
+
+### 4.4 Index
+
+```sql
+CREATE INDEX idx_posts_quoted ON posts(quoted_hash) WHERE quoted_hash IS NOT NULL;
+```
+
+---
+
+## 5. Resolution at receipt
+
+Inserted between step 5 and step 6 of section 9, inside the same transaction.
+
+1. **Accept.** When `peers.accept_replies` is 0 and the item carries a quote block, discard the item and move the cursor.
+2. **Thread.** When `thread_replies` is 0, store the item as an ordinary row with `quoted_hash` NULL and `parent_id` NULL. Stop.
+3. **Parse.** Read the quote block. No block gives `quoted_hash` NULL and an ordinary top-level row. Stop.
+4. **Hash.** Compute `quoted_hash` from the parsed fields, by the section 6 rule, using the topic **as quoted** and before any `topic_prefix` of this pair.
+5. **Attach.** `SELECT id FROM posts WHERE content_hash = ?`. A row found sets `parent_id`. 
+6. **Orphan.** No row found, and `orphan_replies` is `keep`: store with `parent_id` NULL. `orphan_replies` is `drop`: discard the item and move the cursor.
+
+The same procedure runs when a member writes a reply locally, at steps 3 to 5.
+
+---
+
+## 6. Late attachment
+
+Order is not guaranteed across pairs, so a reply may arrive before its parent.
+
+On every insert of any item, after `content_hash` is computed, the server runs:
+
+```sql
+UPDATE posts
+   SET parent_id = (SELECT id FROM posts WHERE content_hash = ?)
+ WHERE parent_id IS NULL
+   AND quoted_hash = ?;
+```
+
+Both parameters are the `content_hash` of the item being inserted. An orphan binds the moment its parent arrives.
+
+A thread therefore assembles out of order. A server that receives a conversation in reverse ends with the same tree as a server that received it in sequence.
+
+---
+
+## 7. The return path
+
+Server A publishes a post. Server B pulls it and a member of B replies. The reply is a published item of B under the topic of the parent.
+
+A pair that pulls from B carries the reply. When A pulls from B, A computes the quoted hash, finds its own row, and attaches the reply to its own thread.
+
+**A reply returns when the pair runs in both directions.** No push exists, no address is held in the item, and no server learns anything it did not already hold.
+
+The reply also reaches every other server that accepts the topic and holds the parent, by ordinary relay, without passing through A. Server C attaches the reply whether or not C holds any link to A.
+
+---
+
+## 8. Convergence
+
+Two servers holding one parent may hold different reply sets. Both trees are correct for their position.
+
+| Condition | Result |
+|---|---|
+| Both servers accept the topic and are connected within its subgraph | The trees converge within a few sync intervals |
+| One server has a narrower `in` list | It holds the subset that matched |
+| One server has a shallower window | It holds the subset still resident |
+| The subgraph is partitioned | Two trees, neither aware of the other |
+
+There is no thread state, no agreement, and no reconciliation. A tree is the local result of what arrived.
+
+---
+
+## 9. The window bounds the mechanism
+
+A reply attaches only to a parent the server still holds. Past the window the parent row is gone, the lookup fails, and section 5 step 6 decides the outcome.
+
+This bounds the mechanism without any rule of its own:
+
+- The search set is the resident window and never more.
+- A thread ages out whole, because the replies and the parent trim on the same schedule.
+- No structure accumulates. There is no thread table, no orphan queue, and no tail.
+
+Depth of threading follows depth of history, which follows narrowness of the `in` list. A server dedicated to one topic holds long threads. A broad hub holds short ones. The lever is the one the administrator already has.
+
+---
+
+## 10. Cost
+
+For each received item, when `thread_replies` is 1:
+
+| Operation | Cost |
+|---|---|
+| Parse the quote block | One pass over the body |
+| Compute `quoted_hash` | One SHA-256, a few microseconds at 1 KB |
+| Look up the parent | One index probe against the resident window |
+| Late attachment | One indexed update for each insert |
+
+The store is resident at every window size the design uses, so no read reaches the disk. The cost is independent of the window count and of the network size.
+
+`thread_replies` 0 removes all of it. This is the setting for an administrator who wants the base behaviour and no additional work per item.
+
+---
+
+## 11. Display
+
+| State | Presentation |
+|---|---|
+| `parent_id` set | Collapse the quote block. Show the reply threaded under the parent. |
+| `parent_id` NULL, quote present | Show the quote block. The item is self-contained: the reader sees the original handle, time, and text, then the reply. |
+| No quote | An ordinary item. |
+
+The second state is not a failure state. It is a quoted reply, which is readable on its own.
+
+A reader sees the handle and time of the parent, which they would see from the parent itself. Nothing about the server that wrote the parent is shown, because nothing about it is present.
+
+---
+
+## 12. Effect on the existing properties
+
+| Property | Effect |
+|---|---|
+| Anonymity of the first server | None. The quote carries the item fields only, and those already travelled. |
+| Provenance | None added. No path, no hop count, no server identity. |
+| Loop control | None. A returning reply is rejected by the hash index like any item. |
+| Filtering | None. A reply carries a topic and passes the `in` and `out` lists as a post. |
+| Relay | None. Addendum 1 applies without change. |
+| Locality of decisions | Held. Accept, thread, and orphan handling are per pair or per server. |
+| Cursor and sequence | None. A reply takes a `pub_seq` as any published row. |
+| `peer_seq_map` and `parent_seq` | Unchanged. They remain the mechanism for children sent in one batch with their parents by one server. Cross-server threading uses the hash and needs no map, because the hash is stable everywhere and `seq` is not. |
+
+### 12.1 Corrects section 14 property 2
+
+Property 2 is replaced by: a reply returns to the server of the parent when a pair runs in that direction and both servers accept the topic. A reply that does not return is a routing outcome, not a property of the design.
+
+### 12.2 Corrects Addendum 3 section 8
+
+The statement that the absence of a reply path permits the absence of provenance holds for a reply path in the protocol. It does not hold for a reply carried as content. The three decisions are separable, and this addendum separates them.
+
+The consequence Addendum 3 draws — fifty servers producing fifty independent conversations — remains true where the subgraph is sparse or the windows are short, and becomes false where servers are well connected within a topic. Both are acceptable outcomes and neither requires any action.
+
+---
+
+## 13. Administrator decisions
+
+All are set once, at link time or at configuration. No per-item step exists.
+
+| Decision | Scope | Setting |
+|---|---|---|
+| Accept replies from this pair | Pair | `accept_replies` |
+| Thread or flat | Server | `thread_replies` |
+| Keep or drop an orphan | Server | `orphan_replies` |
+| Send replies onward | Pair | `relay` and the `out` list, unchanged |
+
+A reply is published by its author's server on its own terms. What a receiver does with it is the receiver's decision and is invisible to the sender. Two servers may reach different results for the same reply, and both are correct.
+
+---
+
+## 14. Limits
+
+| Item | Value |
+|---|---|
+| Quote block, total | 4 KB |
+| Quoted body within the block | 2 KB, truncated by the writer above this |
+| Quote blocks in one body | 1, the first is parsed and any other is text |
+| Threading depth for display | 8, deeper items shown at the last level |
+
+A reply that quotes a reply is handled identically, because the quoted item is an item and its hash is computed the same way.
+
+---
+
+## 15. Order of work
+
+| Stage | Content |
+|---|---|
+| 1 | The two columns, the index, the quote writer in the interface |
+| 2 | The parser and the hash of the quoted fields |
+| 3 | The lookup at receipt and the local write |
+| 4 | The late attachment update |
+| 5 | The three settings and the pair column |
+| 6 | The threaded display and the orphan display |
+
+Stages 1 to 3 give threading of local replies against received parents. Stage 4 makes it order independent. Stage 5 makes it optional. A server that stops at stage 3 is correct and behaves well.
+
