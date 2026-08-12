@@ -1,6 +1,6 @@
 #!/bin/bash
 
 go mod tidy
-go build -o blog .
+go build -o blogchat .
 
-echo "./blog -config config.json -seed-email you@example.com -seed-handle root"
+echo "./blogchat -config config.json -seed-email you@example.com -seed-handle root"
