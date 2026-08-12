@@ -9,6 +9,12 @@ Two areas share the same backend:
 
 A channel is a post row with the `is_chat` column set to 1, and a chat message is a reply to that row. There is no separate table.
 
+### Posts
+
+[Posts](docs/posts.png)
+
+[Chat](docs/chat.png)
+
 ## AI Usage Disclosure
 
 This README was written by Opus 5.0, and all of the code was as well.  And the Terraform configs.  Hand editing will take place as usage testing finds issues, so it remains stable after the initial features are stable.
