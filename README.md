@@ -11,9 +11,9 @@ A channel is a post row with the `is_chat` column set to 1, and a chat message i
 
 ### Posts
 
-[Posts](docs/posts.png)
+![Posts](docs/posts.png)
 
-[Chat](docs/chat.png)
+![Chat](docs/chat.png)
 
 ## AI Usage Disclosure
 
