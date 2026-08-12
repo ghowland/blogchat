@@ -5,30 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{{site_name}}</title>
-<link rel="stylesheet" href="/static/style.css">
-<!-- The configuration stops the injection of an inline style element,
-     which the Content Security Policy blocks. -->
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"
+        integrity="sha384-A1XhMANHciQ8ED89Ap5K0zOdmQKiEeXSjaN0sakNxIzq9Z2YfXV/BwHp7oP3z5ip"
+        crossorigin="anonymous"></script>
+
+<style type="text/tailwindcss">
+  @theme {
+    --height-chatpane: calc(100dvh - 8rem);
+  }
+</style>
+
 <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
 <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js"
         integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V"
         crossorigin="anonymous"></script>
 </head>
-<body>
-<header class="bar">
-  <a class="brand" href="/feed">{{site_name}}</a>
-  {{#authed}}
-  <nav class="nav">
-    <a href="/feed">Posts</a>
-    <a href="/chat">Chat</a>
-    <a href="/invite">Invite</a>
-    <a href="/keys">Keys</a>
-    <span class="who">{{handle}}</span>
-    <form class="inline" method="post" action="/logout">
-      <input type="hidden" name="csrf" value="{{csrf}}">
-      <button class="link" type="submit">Sign out</button>
-    </form>
-  </nav>
-  {{/authed}}
-</header>
-<main>
 
+<body class="min-h-screen bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
+<header class="border-b border-zinc-200 dark:border-zinc-800">
+  <div class="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <a href="/feed" class="font-semibold text-zinc-900 no-underline dark:text-zinc-100">{{site_name}}</a>
+    {{#authed}}
+    <nav class="flex items-center gap-4 text-sm">
+      <a href="/feed" class="text-blue-600 hover:underline dark:text-blue-400">Posts</a>
+      <a href="/chat" class="text-blue-600 hover:underline dark:text-blue-400">Chat</a>
+      <a href="/invite" class="text-blue-600 hover:underline dark:text-blue-400">Invite</a>
+      <a href="/keys" class="text-blue-600 hover:underline dark:text-blue-400">Keys</a>
+      <span class="text-zinc-500 dark:text-zinc-400">{{handle}}</span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="csrf" value="{{csrf}}">
+        <button type="submit" class="text-blue-600 underline hover:no-underline dark:text-blue-400">Sign out</button>
+      </form>
+    </nav>
+    {{/authed}}
+  </div>
+</header>
+<main class="mx-auto max-w-3xl px-4 py-6">

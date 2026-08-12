@@ -1,48 +1,61 @@
 {{> header}}
-<h1>Your keys</h1>
+<h1 class="mb-4 text-2xl font-semibold">Your keys</h1>
 
-{{#notice}}<p class="notice">{{notice}}</p>{{/notice}}
+{{#notice}}
+<div class="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 dark:border-green-900 dark:bg-green-950 dark:text-green-200">{{notice}}</div>
+{{/notice}}
 
-<p class="lead">
+<p class="mb-4 text-zinc-600 dark:text-zinc-400">
   Each line is one sign-in on one device. Remove the other keys if you do not
   know a line, or if you used a device that is not yours. Those devices then
   need a new sign-in link.
 </p>
 
-<table class="keys">
-<thead>
-<tr><th>Signed in</th><th>Last seen</th><th>Address</th><th>Device</th><th></th></tr>
-</thead>
-<tbody>
-{{#sessions}}
-<tr class="{{#current}}now{{/current}}">
-  <td>{{when}}</td>
-  <td>{{last}}</td>
-  <td>{{ip}}</td>
-  <td class="agent">{{agent}}</td>
-  <td>{{#current}}this device{{/current}}</td>
-</tr>
-{{/sessions}}
-</tbody>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse text-sm">
+  <thead>
+    <tr class="border-b border-zinc-200 text-left text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+      <th class="px-2 py-2 font-semibold">Signed in</th>
+      <th class="px-2 py-2 font-semibold">Last seen</th>
+      <th class="px-2 py-2 font-semibold">Address</th>
+      <th class="hidden px-2 py-2 font-semibold sm:table-cell">Device</th>
+      <th class="px-2 py-2"></th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+  {{#sessions}}
+    <tr class="{{#current}}bg-blue-50 dark:bg-blue-950{{/current}}">
+      <td class="px-2 py-2 tabular-nums whitespace-nowrap">{{when}}</td>
+      <td class="px-2 py-2 tabular-nums whitespace-nowrap">{{last}}</td>
+      <td class="px-2 py-2 tabular-nums">{{ip}}</td>
+      <td class="hidden max-w-56 truncate px-2 py-2 text-zinc-500 sm:table-cell dark:text-zinc-400">{{agent}}</td>
+      <td class="px-2 py-2 whitespace-nowrap text-zinc-500 dark:text-zinc-400">{{#current}}this device{{/current}}</td>
+    </tr>
+  {{/sessions}}
+  </tbody>
 </table>
+</div>
 
 {{#has_others}}
-<form class="card form" method="post" action="/keys/revoke-others">
+<form method="post" action="/keys/revoke-others"
+      class="mt-6 flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
   <input type="hidden" name="csrf" value="{{csrf}}">
-  <p>You have {{others}} other keys. This device keeps its key.</p>
-  <button class="danger" type="submit">Remove all other keys</button>
+  <p class="text-sm">You have {{others}} other keys. This device keeps its key.</p>
+  <button type="submit"
+          class="self-start rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 focus:ring-2 focus:ring-red-500 focus:outline-none dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">Remove all other keys</button>
 </form>
 {{/has_others}}
 
 {{^has_others}}
-<p class="notice">This device holds the only key.</p>
+<div class="mt-6 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+  This device holds the only key.
+</div>
 {{/has_others}}
 
-<h2>Your account</h2>
-<dl class="facts">
-  <dt>Handle</dt><dd>{{handle}}</dd>
-  <dt>Invited by</dt><dd>{{inviter}}</dd>
-  <dt>Member since</dt><dd>{{joined}}</dd>
+<h2 class="mt-8 mb-3 text-lg font-semibold">Your account</h2>
+<dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[8rem_1fr]">
+  <dt class="text-zinc-500 dark:text-zinc-400">Handle</dt><dd class="mb-2 sm:mb-0">{{handle}}</dd>
+  <dt class="text-zinc-500 dark:text-zinc-400">Invited by</dt><dd class="mb-2 sm:mb-0">{{inviter}}</dd>
+  <dt class="text-zinc-500 dark:text-zinc-400">Member since</dt><dd>{{joined}}</dd>
 </dl>
 {{> footer}}
-

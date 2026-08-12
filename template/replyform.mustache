@@ -1,6 +1,9 @@
-<form class="card form" method="post" action="/p/{{post.id}}/r">
+<form method="post" action="/p/{{post.id}}/r"
+      class="mt-6 flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
   <input type="hidden" name="csrf" value="{{csrf}}">
-  <label for="reply">Reply</label>
-  <textarea id="reply" name="body" rows="5" maxlength="4096" required></textarea>
-  <button type="submit">Send reply</button>
+  <label for="reply" class="text-sm font-semibold">Reply</label>
+  <textarea id="reply" name="body" rows="5" maxlength="4096" required
+            class="w-full resize-y rounded-md border border-zinc-300 bg-white px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"></textarea>
+  <button type="submit"
+          class="mt-2 self-start rounded-md border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium hover:bg-zinc-200 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700">Send reply</button>
 </form>

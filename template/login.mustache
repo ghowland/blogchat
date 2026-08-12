@@ -1,31 +1,35 @@
 {{> header}}
-<h1>{{site_name}}</h1>
+<h1 class="mb-4 text-2xl font-semibold">{{site_name}}</h1>
 
 {{#sent}}
-<p class="notice">
+<div class="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
   If that address belongs to a member, a sign-in link is now on the way.
   The link is valid for 15 minutes and works one time only.
-</p>
+</div>
 {{/sent}}
 
 {{^sent}}
-<p class="lead">
+<p class="mb-4 text-zinc-600 dark:text-zinc-400">
   This site is for members only. There is no registration page and there are
   no passwords. Give your email address and you get a sign-in link.
 </p>
 
-{{#error}}<p class="error">{{error}}</p>{{/error}}
+{{#error}}
+<div class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{{error}}</div>
+{{/error}}
 
-<form class="card form" method="post" action="/login">
-  <label for="email">Email address</label>
+<form method="post" action="/login"
+      class="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+  <label for="email" class="text-sm font-semibold">Email address</label>
   <input id="email" name="email" type="email" maxlength="254" required
-         autocomplete="email" autofocus>
-  <button type="submit">Send the link</button>
+         autocomplete="email" autofocus
+         class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+  <button type="submit"
+          class="mt-1 self-start rounded-md border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium hover:bg-zinc-200 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700">Send the link</button>
 </form>
 
-<p class="small">
+<p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
   A member of the site must invite you before you can sign in.
 </p>
 {{/sent}}
 {{> footer}}
-

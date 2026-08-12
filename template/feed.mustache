@@ -1,24 +1,32 @@
 {{> header}}
-<h1>Posts</h1>
+<h1 class="mb-4 text-2xl font-semibold">Posts</h1>
 
-{{#error}}<p class="error">{{error}}</p>{{/error}}
+{{#error}}
+<div class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{{error}}</div>
+{{/error}}
 
 {{> postform}}
 
 {{#empty}}
-<p class="notice">There are no posts. Write the first one.</p>
+<div class="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+  There are no posts. Write the first one.
+</div>
 {{/empty}}
 
+<div class="divide-y divide-zinc-200 dark:divide-zinc-800">
 {{#posts}}
-<article class="row">
-  <h2><a href="/p/{{id}}">{{subject}}</a></h2>
-  <p class="meta">{{handle}} &middot; {{when}} &middot; {{replies}} replies</p>
-</article>
+  <article class="py-3">
+    <h2 class="text-base font-semibold">
+      <a href="/p/{{id}}" class="text-blue-600 no-underline hover:underline dark:text-blue-400">{{subject}}</a>
+    </h2>
+    <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{{handle}} &middot; {{when}} &middot; {{replies}} replies</p>
+  </article>
 {{/posts}}
+</div>
 
-<nav class="pages">
-  {{#has_prev}}<a href="{{base}}?page={{prev_page}}">Newer</a>{{/has_prev}}
-  <span>Page {{page}}</span>
-  {{#has_next}}<a href="{{base}}?page={{next_page}}">Older</a>{{/has_next}}
+<nav class="mt-6 flex items-center gap-4 text-sm">
+  {{#has_prev}}<a href="{{base}}?page={{prev_page}}" class="text-blue-600 hover:underline dark:text-blue-400">Newer</a>{{/has_prev}}
+  <span class="text-zinc-500 dark:text-zinc-400">Page {{page}}</span>
+  {{#has_next}}<a href="{{base}}?page={{next_page}}" class="text-blue-600 hover:underline dark:text-blue-400">Older</a>{{/has_next}}
 </nav>
 {{> footer}}

@@ -1,7 +1,10 @@
 {{> header}}
-<h1>Terms</h1>
-<div class="body">{{terms}}</div>
-{{#authed}}{{> nav}}{{/authed}}
-{{^authed}}<p class="back"><a href="/">Back to the sign-in page</a></p>{{/authed}}
+<h1 class="mb-4 text-2xl font-semibold">Terms</h1>
+<div class="break-words whitespace-pre-wrap">{{terms}}</div>
+{{#authed}}<div class="mt-6">{{> nav}}</div>{{/authed}}
+{{^authed}}
+<p class="mt-6 text-sm">
+  <a href="/" class="text-blue-600 hover:underline dark:text-blue-400">Back to the sign-in page</a>
+</p>
+{{/authed}}
 {{> footer}}
-

@@ -1,11 +1,11 @@
-<!-- The method and the action stay. Without the library, this is a normal
-     form post and the redirect path in the handler still works. -->
-<form id="msgform" class="msgform"
-      method="post" action="/c/{{post.id}}/m"
-      hx-post="/c/{{post.id}}/m" hx-swap="none">
+<form id="msgform" method="post" action="/c/{{post.id}}/m"
+      hx-post="/c/{{post.id}}/m" hx-swap="none"
+      class="flex items-end gap-2 border-t border-zinc-200 pt-3 pb-4 dark:border-zinc-800">
   <input type="hidden" name="csrf" value="{{csrf}}">
   <textarea id="message" name="body" rows="1" maxlength="2048" required
             enterkeyhint="send" autocomplete="off"
-            placeholder="Message. Enter sends. Shift and Enter make a new line."></textarea>
-  <button type="submit">Send</button>
+            placeholder="Message. Enter sends. Shift and Enter make a new line."
+            class="max-h-36 min-h-10 flex-1 resize-none overflow-y-auto rounded-md border border-zinc-300 bg-white px-3 py-2 leading-6 placeholder-zinc-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"></textarea>
+  <button type="submit"
+          class="rounded-md border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium hover:bg-zinc-200 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700">Send</button>
 </form>

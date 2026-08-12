@@ -1,9 +1,15 @@
-<form class="card form" method="post" action="/p">
+<form method="post" action="/p"
+      class="mb-6 flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
   <input type="hidden" name="csrf" value="{{csrf}}">
-  <label for="subject">Subject</label>
-  <input id="subject" name="subject" type="text" maxlength="200" required
-         autocomplete="off">
-  <label for="body">Message</label>
-  <textarea id="body" name="body" rows="8" maxlength="16384" required></textarea>
-  <button type="submit">Post</button>
+
+  <label for="subject" class="text-sm font-semibold">Subject</label>
+  <input id="subject" name="subject" type="text" maxlength="200" required autocomplete="off"
+         class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950">
+
+  <label for="body" class="mt-2 text-sm font-semibold">Message</label>
+  <textarea id="body" name="body" rows="8" maxlength="16384" required
+            class="w-full resize-y rounded-md border border-zinc-300 bg-white px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"></textarea>
+
+  <button type="submit"
+          class="mt-2 self-start rounded-md border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-medium hover:bg-zinc-200 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700">Post</button>
 </form>

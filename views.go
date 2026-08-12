@@ -96,13 +96,19 @@ func (app *App) Render(res http.ResponseWriter, req *http.Request, name string, 
 	// script-src permits the HTMX file from the content network. connect-src
 	// permits the requests that HTMX makes, because those requests use
 	// XMLHttpRequest and form-action does not govern them.
+
+	// The Tailwind browser build generates styles at runtime and injects a
+	// style element, so style-src needs unsafe-inline. Every member value
+	// still passes through the mustache escape, and no member value goes
+	// into an attribute, so the injection surface stays small.
 	res.Header().Set("Content-Security-Policy",
 		"default-src 'none'; "+
 			"script-src 'self' https://cdn.jsdelivr.net; "+
 			"connect-src 'self'; "+
-			"style-src 'self'; "+
+			"style-src 'self' 'unsafe-inline'; "+
 			"form-action 'self'; "+
 			"base-uri 'none'")
+
 	res.WriteHeader(http.StatusOK)
 	res.Write(buf.Bytes())
 }

@@ -1,29 +1,29 @@
 {{> header}}
-<div class="chatpage">
+<div class="flex h-[calc(100dvh-8rem)] flex-col">
 
-  <div class="chathead">
-    <div class="chattitle">
-      <h1>{{post.subject}}</h1>
-      {{#has_topic}}<p class="topic">{{post.body}}</p>{{/has_topic}}
-    </div>
-    <div class="chatmeta">
-      <a href="/chat">All channels</a>
+  <div class="border-b border-zinc-200 pb-2 dark:border-zinc-800">
+    <h1 class="text-xl font-semibold">{{post.subject}}</h1>
+    {{#has_topic}}<p class="text-sm text-zinc-500 dark:text-zinc-400">{{post.body}}</p>{{/has_topic}}
+    <div class="mt-1 flex flex-wrap items-baseline gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+      <a href="/chat" class="text-blue-600 hover:underline dark:text-blue-400">All channels</a>
       <span>{{post.handle}} &middot; keeps {{keep}}</span>
       {{#owner}}
-      <form class="inline" method="post" action="/c/{{post.id}}/delete">
+      <form method="post" action="/c/{{post.id}}/delete" class="inline">
         <input type="hidden" name="csrf" value="{{csrf}}">
         <input type="hidden" name="kind" value="chat">
-        <button class="link danger" type="submit">delete channel</button>
+        <button type="submit" class="text-red-600 underline hover:no-underline dark:text-red-400">delete channel</button>
       </form>
       {{/owner}}
     </div>
   </div>
 
-  {{#error}}<p class="error">{{error}}</p>{{/error}}
+  {{#error}}
+  <div class="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{{error}}</div>
+  {{/error}}
 
-  <div class="lines" id="lines">
-    <div class="linewrap" id="linewrap">
-      {{#empty}}<p class="notice">There are no messages. Send the first one.</p>{{/empty}}
+  <div id="lines" class="flex flex-1 flex-col overflow-y-auto overscroll-contain py-1">
+    <div id="linewrap" class="mt-auto">
+      {{#empty}}<p class="px-1 py-2 text-sm text-zinc-500 dark:text-zinc-400">No messages yet.</p>{{/empty}}
       {{#lines}}{{> line}}{{/lines}}
       <div id="poller"
            hx-get="/c/{{channel_id}}/lines?after={{last_id}}"
