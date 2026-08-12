@@ -25,7 +25,7 @@ This README was written by Opus 5.0, and all of the code was as well.  And the T
 
 ### Federation Algorithm
 
-<img src="https://raw.githubusercontent.com/ghowland/blogchat/refs/heads/main/docs/ffs_flow.png" width=50% height=50%>
+<img src="https://raw.githubusercontent.com/ghowland/blogchat/refs/heads/main/docs/ffs_flow.png">
 
 #### Update
 
