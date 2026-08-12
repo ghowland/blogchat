@@ -1610,3 +1610,449 @@ Step 4 is not guaranteed. It happens when a path exists from server 2 back to se
 | `reply_to` length | 300 characters |
 | Handle part | 24 characters |
 | Timestamp part | 20 digits |
+
+---
+
+# Addendum 7 — The wire protocol
+
+Extends the whole specification. Nothing here is new behaviour. This addendum separates what two servers must agree on from what one server decides for itself.
+
+The specification up to this point describes an implementation: SQLite tables, columns, goroutines, a schema. None of that is on the wire. A peer cannot see it and does not need it.
+
+**This addendum is the part that must be published as a protocol.** An implementation that follows it interoperates with any other implementation that follows it, in any language, on any store, with no relationship to the original software and no permission from anyone.
+
+---
+
+## 1. Scope
+
+### 1.1 What is on the wire
+
+- One HTTP endpoint and its method
+- The request body
+- The response body and its fields
+- The signature and its input bytes
+- The hash construction
+- The topic grammar
+- The quote block format for replies
+- The field limits
+
+That is the whole agreement. It is short by intent.
+
+### 1.2 What is not on the wire
+
+Everything else in this specification, including:
+
+| Local matter | Why it is local |
+|---|---|
+| The store | SQLite, Postgres, files, memory. A peer cannot tell. |
+| The schema, every column | `pub_seq`, `peer_id`, `content_hash`, `quoted_hash` are internal names |
+| The transfer loop | Goroutines, threads, cron, a person running a command by hand |
+| The trim and the window count | Each server decides its own history depth |
+| Filter storage | A table, a config file, a hardcoded list |
+| Threading | A server may implement Addendum 5 or ignore it |
+| The interface | Web, terminal, mail gateway, none at all |
+| Member accounts | A server may have zero members and only relay |
+
+**A conforming server is one that speaks section 3 to section 8 correctly. Nothing else is required of it.**
+
+---
+
+## 2. The model, stated for an implementer
+
+A server holds items. An item is published or not. A published item is offered to peers.
+
+A peer relationship is a pair. Two administrators exchange public keys out of band and each side writes the other's key into its own records. There is no registration, no directory, and no third party.
+
+Transfer is pull. A target asks an origin for items above a cursor. The origin answers with items in ascending order. The target stores what it keeps and advances its cursor.
+
+An item carries no path, no server identity, and no global identifier. A target that publishes a received item offers it onward as its own publication with its own sequence number.
+
+That is the entire model. Everything below is the encoding of it.
+
+---
+
+## 3. The endpoint
+
+```
+POST /fed/pull
+Content-Type: application/json
+```
+
+One endpoint. No other path is defined and none is required.
+
+TLS is expected. TLS gives privacy. The signature gives identity of the pair. They are separate and neither substitutes for the other.
+
+A server that only pulls and never serves needs no endpoint at all. It is a conforming client.
+
+---
+
+## 4. The request
+
+```json
+{
+  "cursor": 4192,
+  "limit": 200
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `cursor` | integer | The highest sequence the target holds from this pair. First request sends 0. |
+| `limit` | integer | The count of items the target accepts. The origin may send fewer. Never more than 200. |
+
+Both fields are required. An origin rejects a malformed body with 400.
+
+---
+
+## 5. The response
+
+```json
+{
+  "items": [
+    {
+      "seq": 4193,
+      "kind": "post",
+      "handle": "root",
+      "topic": "games.babylon5",
+      "subject": "The shadow war",
+      "body": "Text of the post.",
+      "origin_time": 1754870400,
+      "remote": false
+    }
+  ],
+  "high": 4193,
+  "more": false
+}
+```
+
+### 5.1 Item fields
+
+| Field | Type | Rule |
+|---|---|---|
+| `seq` | integer | The sequence at the sending server, and at no other server |
+| `kind` | string | `post`, `reply`, `channel`, or `message` |
+| `handle` | string | The handle at the server that wrote it. Not unique anywhere. |
+| `topic` | string | Section 7 grammar. Null for a reply and a message. |
+| `subject` | string | The subject or channel name. Null for a reply and a message. |
+| `body` | string | The text |
+| `origin_time` | integer | Unix seconds, set at the first server, unchanged at every hop |
+| `remote` | boolean | False at the first server, true at every hop after |
+| `parent_seq` | integer | Present for a reply and a message only. The `seq` of the parent at this sender. |
+
+**No other field is defined.** A receiver ignores a field it does not know. A sender does not add a field that identifies a server, a path, a hop count, or a member.
+
+### 5.2 Envelope fields
+
+| Field | Rule |
+|---|---|
+| `high` | The highest sequence the origin **examined** in this batch, not the highest it sent |
+| `more` | True when the origin holds items above `high` |
+
+`high` is the examined value so that a batch removed entirely by an outbound filter still advances the cursor. Without this, a pair with a narrow filter re-reads the same rows on every cycle.
+
+### 5.3 Order
+
+The origin sends in ascending sequence order, lowest first.
+
+A parent holds a lower sequence than its child, because the parent is published first. A target therefore holds the parent before the child arrives.
+
+---
+
+## 6. The sequence
+
+The sequence is one integer per server, and it is the only shared state of a pair. Each side holds its own copy.
+
+Rules that must hold in any implementation:
+
+1. A sequence value is assigned when an item becomes published.
+2. The value is higher than every value the server has issued before.
+3. Withdrawal from publication does not release the value.
+4. Republication takes a new and higher value.
+5. **The sequence never decreases.** A restore from backup is the only event that can break this, and the administrator raises the counter by hand above the highest value ever issued.
+
+Gaps are harmless. The sequence is a high water mark and not a count.
+
+How the value is generated and stored is local. A counter table, a sequence object, an atomic integer in memory with a durable checkpoint — a peer cannot tell and does not care.
+
+---
+
+## 7. Topics
+
+A topic is a lower case dotted string.
+
+1. Two segments at least.
+2. A dot separates two segments.
+3. A segment starts with a letter, `a` to `z`.
+4. A segment continues with a letter or a digit.
+5. No other character is valid.
+6. No empty segment, no leading dot, no trailing dot.
+7. 128 characters at most.
+
+Valid: `games.all`, `games.babylon5`, `alt.rock.and.roll`, `a.b`
+
+Invalid: `games`, `games.5`, `.games.all`, `games.all.`, `games..all`, `Games.All`, `games.all-x`
+
+A receiver validates every arriving topic. A failure discards the item and advances the cursor.
+
+The topic character set holds no glob character, so a filter pattern needs no escape.
+
+**The topic string is the only shared name in the system.** Nothing enforces agreement on it and nothing needs to. Two servers agree on a topic by using the same string.
+
+---
+
+## 8. The hash
+
+The hash is the duplicate key and the reply anchor. **Every implementation must produce the same bytes for the same item or it is not conforming.**
+
+```
+SHA-256( handle || 0x00 || topic || 0x00 || subject || 0x00 || body || 0x00 || decimal(origin_time) )
+```
+
+Rules:
+
+- Fields are UTF-8 bytes.
+- The separator is one zero byte, between fields and not at the end.
+- `origin_time` is decimal ASCII, no sign, no padding.
+- A null field contributes zero bytes between its separators.
+- **The topic is hashed as it arrived**, before any local prefix is applied.
+
+The hash never travels. Each server computes it. Because the input is item fields only, every server computes the same value, which is what makes duplicate rejection work across the network without any global identifier.
+
+A receiver that already holds the value discards the item and advances the cursor. This is what stops a ring, and what stops one item arriving twice through two paths.
+
+---
+
+## 9. The signature
+
+The target signs. The origin verifies.
+
+### 9.1 Keys
+
+Ed25519. **One key pair per pair**, not per server. A server with ten pairs holds ten private keys and ten public keys.
+
+No key is common to two pairs, so two peer administrators comparing their records cannot determine that they hold a link to the same server.
+
+Public keys are exchanged out of band, by any means, between two people. There is no key server, no fingerprint registry, and no automatic exchange.
+
+### 9.2 Headers
+
+```
+X-Fed-Time: 1754870400
+X-Fed-Sig: base64(Ed25519 signature)
+```
+
+### 9.3 Signed bytes
+
+```
+"POST" || 0x00 || "/fed/pull" || 0x00 || decimal(time) || 0x00 || SHA-256(body)
+```
+
+`time` is the value in `X-Fed-Time`, decimal ASCII. `SHA-256(body)` is the raw 32 bytes of the digest of the request body, not hex and not base64.
+
+### 9.4 Verification
+
+- A time more than 300 seconds from the origin's clock fails.
+- A bad signature fails.
+- A failure returns 401 and writes nothing.
+
+The clock is the most common cause of total failure between two correct implementations. Run NTP.
+
+The signature covers the transport only. **An item carries no signature**, because an item passes through a chain of servers and a per-item signature would identify the first server.
+
+---
+
+## 10. Filters
+
+A pair holds two lists of globs, one per direction. Both may be empty.
+
+| Direction | Applied by | Applied to |
+|---|---|---|
+| `out` | The origin, building a response | Items it would send |
+| `in` | The target, at receipt | Items that arrive |
+
+An item matches a list when it matches **any** pattern in the list. Order has no effect.
+
+**An empty list passes nothing.** This is the default for a new pair, so a pair approved by accident carries nothing. An administrator wanting everything writes one pattern:
+
+```
+*
+```
+
+The two lists are independent, neither side sees the other, and an item passes only when it matches both. Each side narrows without asking the other.
+
+Pattern character set: the topic set, plus `*`, `?`, `[`, `]`, `-`. Maximum 64 patterns per list, 128 characters per pattern.
+
+Where the lists are stored is local.
+
+---
+
+## 11. Receipt
+
+The order of operations at the target. The steps that affect the wire are marked; the rest are local.
+
+1. **Filter.** Test the topic against the `in` list. No match discards the item and advances the cursor.
+2. **Validate.** Test the topic grammar. Test every field against section 13. A failure discards the item and advances the cursor.
+3. **Hash.** Compute the hash from the fields as they arrived, before any prefix.
+4. **Prefix.** Apply a local topic prefix if the pair has one. Local only.
+5. **Store.** A hash conflict discards the item and advances the cursor.
+6. **Map.** Record the relation between the sender's `seq` and the local item, for `parent_seq` resolution.
+7. **Cursor.** Advance to the item's `seq`.
+
+Steps 5 to 7 are one atomic unit. A failure mid-batch leaves the cursor at the last committed item and the next transfer resumes there.
+
+**Every discard advances the cursor.** A discarded item is never requested again.
+
+---
+
+## 12. Relay
+
+Relay is a property of the pair, decided once when the link is made. It is not a per-item decision and no human step exists in the path.
+
+| Relay | Effect at receipt |
+|---|---|
+| Off | The item is stored unpublished. Readable here, goes no further. |
+| On | The item is published on arrival with a new local sequence. It goes to every other pair on the next cycle. |
+
+Default off.
+
+An item leaving a relaying server carries `remote` true and a new `seq` from that server. The next server learns that the item is not local to the sender and learns nothing else.
+
+**A published item cannot be recalled.** The first server holds no address of any copy. A delete is local to one server.
+
+---
+
+## 13. Limits
+
+| Item | Value |
+|---|---|
+| Topic | 128 characters |
+| Subject, channel name | 200 characters |
+| Post body | 16 KB |
+| Reply body | 4 KB |
+| Chat message | 2 KB |
+| Handle | 24 characters |
+| Items in one response | 200 |
+| Response body | 4 MB |
+| Signature age | 300 seconds |
+| Transfer interval | 60 seconds minimum |
+| Patterns per filter list | 64 |
+| Pattern length | 128 characters |
+
+A server rejects a response above the response limit. A server discards an item above a field limit and advances the cursor.
+
+---
+
+## 14. Replies by quotation
+
+Optional. A server that does not implement this stores replies as ordinary items and interoperates without fault.
+
+The only wire matter is the format of the quote block, because both sides must parse the same fields out of it to compute the same parent hash.
+
+```
+> handle @ decimal(origin_time) | topic | subject
+> The body of the parent.
+> Further lines of the parent body.
+```
+
+The block is the first part of the body. Each line starts with `>` and a space. An empty line ends the block. The reply text follows.
+
+The five parsed fields are the five hash inputs, in the order of section 8. A receiver computes the parent hash and looks for it locally. Found, the reply threads. Not found, the reply stands alone and remains readable, because the quoted text is in the body.
+
+**The quote is the identity and the display at the same time.** Nothing else travels. A reply reveals no more about its parent than the parent already revealed about itself.
+
+---
+
+## 15. What conformance requires
+
+An implementation is conforming when:
+
+1. It produces and accepts the request and response of sections 4 and 5.
+2. It sends items in ascending sequence order.
+3. It computes the hash of section 8 byte for byte.
+4. It computes the signature input of section 9 byte for byte.
+5. It validates topics by section 7.
+6. It advances the cursor on every item, including discards.
+7. It never decreases its sequence.
+8. It adds no field that identifies a server, a path, a hop count, or a member.
+
+Nothing else is required. Every other choice is local.
+
+The two constructions that must be exact are the hash and the signature input. A signature mismatch fails loudly with a 401. **A hash mismatch fails silently** — rings stop being detected, duplicates multiply, and replies do not thread. Test the hash against a known vector before pairing with anyone.
+
+---
+
+## 16. Test vectors
+
+Any implementation must reproduce these.
+
+**Hash**
+
+```
+handle:      root
+topic:       games.babylon5
+subject:     The shadow war
+body:        Text of the post.
+origin_time: 1754870400
+```
+
+Input bytes:
+
+```
+root\x00games.babylon5\x00The shadow war\x00Text of the post.\x001754870400
+```
+
+**Hash, null fields (a reply)**
+
+```
+handle:      root
+topic:       (null)
+subject:     (null)
+body:        A reply.
+origin_time: 1754870400
+```
+
+Input bytes:
+
+```
+root\x00\x00\x00A reply.\x001754870400
+```
+
+**Signature input**
+
+```
+POST\x00/fed/pull\x001754870400\x00<32 raw bytes of SHA-256(body)>
+```
+
+**Topic validator**
+
+| Input | Result |
+|---|---|
+| `games.all` | Valid |
+| `games.babylon5` | Valid |
+| `a.b` | Valid |
+| `alt.rock.and.roll` | Valid |
+| `games` | Invalid |
+| `games.5` | Invalid |
+| `.games.all` | Invalid |
+| `games.all.` | Invalid |
+| `games..all` | Invalid |
+| `Games.All` | Invalid |
+| `games.all-x` | Invalid |
+| `games all` | Invalid |
+| empty | Invalid |
+| `.` | Invalid |
+| 129 characters | Invalid |
+
+---
+
+## 17. Independence
+
+There is no reference implementation, no organisation, no registry, no name to hold, and no version anybody must adopt.
+
+A server participates by speaking this protocol to a peer that agreed to speak it. Nothing else grants membership and nothing can withdraw it.
+
+An implementation may be a full server, a relay with no members, a read-only client that pulls into a local file, a deep archive of one topic, or a gateway to some other medium entirely. A peer cannot distinguish them and has no reason to.
+
+**Anyone may implement this. Anyone may run it. Nobody needs permission, and nobody can be removed.**
+
+The protocol survives every implementation of it, including the first one.
