@@ -23,6 +23,74 @@ Post and reply with URL markup.  No images.
 
 This README was written by Opus 5.0, and all of the code was as well.  And the Terraform configs.  Hand editing will take place as usage testing finds issues, so it remains stable after the initial features are stable.
 
+### Federation Algorithm
+
+<img src="https://raw.githubusercontent.com/ghowland/blogchat/refs/heads/main/docs/ffs_flow.png" width=50% height=50%>
+
+#### Update
+
+```
+TARGET                          ORIGIN
+    |                               |
+    |  give me items after 4192     |
+    |------------------------------>|
+    |     signed with our key       |
+    |                               |
+    |     items 4193..4207          |
+    |<------------------------------|
+    |     high=4207  more=no        |
+    |                               |
+  for each item:
+    wanted topic?  no -> skip
+    valid?         no -> skip
+    seen hash?     yes -> skip
+    else store
+    cursor = item seq          (skips move it too)
+
+  if relay on: publish it again
+               new seq, remote = true
+```
+
+#### Authoring and Replying
+
+```
+ALICE writes on server A
+    |
+    v
+  A: seq 4193, remote=false        <- A's members read it here
+    |
+    |  B pulls from A
+    v
+  B: seq 118, remote=true          <- B's members read it here
+    |
+    |  B has relay on, so it publishes it again
+    |
+    +---- C pulls ----> C: seq 62, remote=true
+    |                     |
+    |                     +---- E pulls ----> E: seq 9004, remote=true
+    |
+    +---- D pulls ----> D: seq 771, remote=true
+                          |
+                          +---- C pulls ----> already have this hash, skip
+
+
+  Every server got it by asking, not by being sent it.
+  Every hop is just a normal post on that server.
+  Only C and D know B had it.  Nobody past B knows about A.
+
+  BOB on D replies
+    |
+    |  his reply quotes Alice's post in the body
+    v
+  D: seq 772, remote=false
+    |
+    +---- B pulls ----> B works out the parent from the quote,
+                        finds its own copy, hangs the reply on it
+                        |
+                        +---- A pulls ----> A does the same,
+                                            Alice sees the reply
+```
+
 ## Build
 
 The Go source, the templates, and the client script are in `code/`.
