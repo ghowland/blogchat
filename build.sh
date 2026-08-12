@@ -3,6 +3,6 @@
 cd code/
 
 go mod tidy
-go build -o ../blogchat .
+go build -o ../ffs .
 
-echo "./blogchat -config config.json -seed-email you@example.com -seed-handle root"
+echo "./ffs -config config.json -seed-email you@example.com -seed-handle root"

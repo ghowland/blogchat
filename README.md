@@ -1,4 +1,4 @@
-# Blogchat
+# FFS: Federated Forum System
 
 One Go process and one SQLite file. Text only. Invite only. No passwords, email auth only.
 
