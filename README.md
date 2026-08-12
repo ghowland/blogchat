@@ -13,7 +13,7 @@ A channel is a post row with the `is_chat` column set to 1, and a chat message i
 
 <img src="https://raw.githubusercontent.com/ghowland/blogchat/refs/heads/main/docs/posts.png" width=50% height=50%>
 
-Post and reply.  No images or URL markup.
+Post and reply with URL markup.  No images.
 
 ### Chat
 
