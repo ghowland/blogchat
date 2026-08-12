@@ -258,7 +258,7 @@ func (app *App) ShowPost(res http.ResponseWriter, req *http.Request, usr *User, 
 		items = append(items, map[string]any{
 			"id":         rep.ID,
 			"handle":     rep.Handle,
-			"body":       rep.Body,
+			"parts":      bodyParts(rep.Body),
 			"when":       timeText(rep.CreatedAt),
 			"can_delete": owner || rep.UserID == usr.ID,
 		})
@@ -268,10 +268,12 @@ func (app *App) ShowPost(res http.ResponseWriter, req *http.Request, usr *User, 
 	ctx["post"] = map[string]any{
 		"id":      pst.ID,
 		"subject": pst.Subject,
-		"body":    pst.Body,
 		"handle":  pst.Handle,
 		"when":    timeText(pst.CreatedAt),
 	}
+	// A top-level key, because a dotted name in a section tag is not
+	// supported by every mustache implementation.
+	ctx["post_parts"] = bodyParts(pst.Body)
 	ctx["replies"] = items
 	ctx["reply_count"] = len(items)
 	ctx["owner"] = owner

@@ -847,7 +847,7 @@ Flat, in the repository root. This is appropriate for a single-binary program of
 | `geo.go` | ~200 | Country lookup, geoblock middleware |
 | `mail.go` | ~120 | SMTP client |
 | `main.go` | ~140 | Startup, signals, shutdown |
-| `tmpl/*.mustache` | ~350 | 15 templates |
+| `template/*.mustache` | ~350 | 15 templates |
 | `static/style.css` | ~250 | Style sheet |
 | `static/chat.js` | ~40 | Chat keyboard and scroll |
 
