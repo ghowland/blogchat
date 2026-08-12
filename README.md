@@ -29,7 +29,7 @@ The Go source, the templates, and the client script are in `code/`.
 
     cd code
     go mod tidy
-    go build -o blog .
+    go build -o ffs .
 
 The binary is static. The SQLite driver is pure Go, so the build needs no C toolchain.
 
@@ -44,7 +44,7 @@ Copy `config.json` and set `site_url` and `mail_from`. The database file does no
 
 The platform has no registration page, so the first member cannot invite himself. Give the address and the handle of the first member one time:
 
-    ./blog -config ../config.json -seed-email you@example.com -seed-handle root
+    ./ffs -config ../config.json -seed-email you@example.com -seed-handle root
 
 The program prints a sign-in link to standard output. The link is valid for 24 hours. Later runs need no seed flags.
 
